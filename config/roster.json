@@ -1,0 +1,169 @@
+{
+  "meta": {
+    "name": "Racines",
+    "description": "Two-week repeating rota template. Days are a ring: week 2 Dimanche is adjacent to week 1 Lundi.",
+    "cycleWeeks": 2
+  },
+
+  "days": ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"],
+  "weekendDays": ["Samedi", "Dimanche"],
+  "slots": ["Lunch", "Dinner"],
+
+  "startTimes": { "Lunch": "10H", "Dinner": "18H" },
+
+  "coverage": {
+    "requiredPerService": 3,
+    "closed": []
+  },
+
+  "solver": {
+    "underrunAllowance": 3,
+    "_maxCostDropNote": "A cost budget, not a shift count: how far above the cheapest shift-count distribution the search keeps looking before giving up. Compare against the weights below -- one uncovered shift is 1000, one temporary shift is 300.",
+    "maxCostDrop": 2500,
+    "componentShortlist": 150,
+    "maxComponentCombinations": 4000,
+    "timeBudgetSeconds": 240,
+    "shiftCountTolerance": 0
+  },
+
+  "weights": {
+    "coverageShortfall": 1000,
+    "shiftUnderrun": 200,
+    "slotPreference": 10,
+    "isolatedWorkDay": 5,
+    "weekendFairness": 3,
+    "dinnerFairness": 3,
+    "adminLunchUnprotected": 25,
+    "temporaryShift": 300
+  },
+
+  "staff": [
+    {
+      "name": "Suyeon",
+      "contract": "RESP",
+      "responsable": true,
+      "mode": "fixed",
+      "colour": "#B8CCE4",
+      "fixed": {
+        "Mardi": ["Dinner"],
+        "Mercredi": ["Lunch", "Dinner"],
+        "Jeudi": ["Lunch", "Dinner"],
+        "Vendredi": ["Lunch", "Dinner"]
+      },
+      "officeLunch": {
+        "count": 1,
+        "slot": "Lunch",
+        "candidateDays": ["Mercredi", "Jeudi"],
+        "note": "One lunch per week set aside for admin in the office. She still counts towards the three and can step onto the floor if that service is short; the engine reports (S6) whenever she is load-bearing rather than genuinely free to do admin."
+      }
+    },
+    {
+      "name": "Giulia",
+      "contract": "RESP",
+      "responsable": true,
+      "mode": "fixed",
+      "colour": "#FFD966",
+      "fixed": {
+        "Mardi": ["Lunch", "Dinner"],
+        "Mercredi": ["Lunch", "Dinner"],
+        "Vendredi": ["Lunch", "Dinner"],
+        "Samedi": ["Lunch"]
+      }
+    },
+    {
+      "name": "Lucas",
+      "contract": "RESP",
+      "responsable": true,
+      "mode": "fixed",
+      "colour": "#C6E0B4",
+      "fixed": {
+        "Lundi": ["Lunch", "Dinner"],
+        "Mardi": ["Lunch"],
+        "Samedi": ["Lunch", "Dinner"],
+        "Dimanche": ["Lunch", "Dinner"]
+      }
+    },
+    {
+      "name": "Clementine",
+      "contract": "MI TEMPS",
+      "responsable": false,
+      "mode": "fixed",
+      "colour": "#CC99FF",
+      "startTimeOverrides": { "Dinner": "19H" },
+      "fixed": {
+        "Jeudi": ["Dinner"],
+        "Samedi": ["Dinner"],
+        "Dimanche": ["Lunch"]
+      }
+    },
+
+    {
+      "name": "Veronica",
+      "contract": "",
+      "responsable": false,
+      "mode": "solved",
+      "colour": "#F4B183",
+      "cycleWeeks": 1,
+      "consecutiveDaysOff": 2,
+      "weeks": {
+        "1": { "doubles": false, "shifts": 5, "weekend": true, "lunch": "PREF", "dinner": "ANY" },
+        "2": { "doubles": false, "shifts": 5, "weekend": true, "lunch": "PREF", "dinner": "ANY" }
+      }
+    },
+    {
+      "name": "Barbara",
+      "contract": "",
+      "responsable": false,
+      "mode": "solved",
+      "colour": "#A9D08E",
+      "cycleWeeks": 2,
+      "consecutiveDaysOff": 3.5,
+      "weeks": {
+        "1": { "doubles": false, "shifts": 5, "weekend": false, "lunch": "OBLIG", "dinner": "NO" },
+        "2": { "doubles": true, "shifts": 9, "weekend": true, "lunch": "ANY", "dinner": "ANY" }
+      }
+    },
+    {
+      "name": "Federica",
+      "contract": "TEMPORAIRE",
+      "responsable": false,
+      "mode": "solved",
+      "temporary": true,
+      "colour": "#D9D9D9",
+      "cycleWeeks": 2,
+      "consecutiveDaysOff": 0,
+      "_note": "Leaving. Available to plug gaps but must not be relied on: target is 0 shifts with a ceiling of 6 per week, and every shift she takes is charged (weights.temporaryShift) so the engine uses her only where the permanent team cannot cover. Everything she covers is listed under TEMP/LEAVER EXPOSURE in the report -- those are the shifts that become gaps when she goes.",
+      "weeks": {
+        "1": { "doubles": true, "shifts": 0, "maxShifts": 6, "weekend": true, "lunch": "ANY", "dinner": "ANY" },
+        "2": { "doubles": true, "shifts": 0, "maxShifts": 6, "weekend": true, "lunch": "ANY", "dinner": "ANY" }
+      }
+    },
+    {
+      "name": "Beatrice",
+      "contract": "PLEIN TEMPS",
+      "responsable": false,
+      "mode": "solved",
+      "colour": "#F8CBAD",
+      "cycleWeeks": 1,
+      "consecutiveDaysOff": 2,
+      "weeks": {
+        "1": { "doubles": true, "shifts": 7, "weekend": true, "lunch": "ANY", "dinner": "ANY" },
+        "2": { "doubles": true, "shifts": 7, "weekend": true, "lunch": "ANY", "dinner": "ANY" }
+      }
+    }
+  ],
+
+  "rules": {
+    "minConsecutiveDaysOffForEveryone": 2,
+    "requireResponsablePerService": true,
+    "enforcePersonCycleRepeat": true,
+    "_enforcePersonCycleRepeatNote": "CYCLE = 1 WEEK means that person's rota repeats identically every week. Only Barbara is on a 2-week cycle. Set false to let a 1-week person's two weeks differ.",
+    "officeLunchCountsOnFloor": true,
+    "_officeLunchCountsOnFloorNote": "Suyeon is in the office for that lunch but can step onto the floor, so she counts towards the three and no fourth person is needed. Set false if that lunch must be fully covered by three others.",
+    "daysOffScope": "week",
+    "_daysOffScopeNote": "'week' = the required run of days off must be available in EVERY week; a run straddling the week boundary counts for both weeks it touches. 'cycle' = one qualifying run anywhere in the fortnight, which lets a person work a full 7-day week."
+  }
+}
+
+
+

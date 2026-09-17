@@ -128,10 +128,10 @@ function New-RotaSolverVariables {
     .SYNOPSIS
         Turn the solved staff into search variables.
     .DESCRIPTION
-        A person on a 1-week cycle makes one decision that applies to every week of the
-        cycle -- that is what "CYCLE: 1 WEEK" means, and it is why their rota looks the
-        same every week. A person on a 2-week cycle gets one variable per week.
-        Set rules.enforcePersonCycleRepeat to false to decouple them.
+        A person whose repeat mode is 'weekly' makes one decision that applies to every week
+        of the cycle, which is why their rota looks the same each week. 'cycle' (the contract
+        differs between weeks) and 'none' (cover, placed week by week) both get one variable
+        per week. Set rules.enforcePersonCycleRepeat to false to decouple a weekly person.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Config)
@@ -141,8 +141,9 @@ function New-RotaSolverVariables {
     $vars = [System.Collections.Generic.List[object]]::new()
 
     foreach ($p in $Config.SolvedStaff) {
-        $personCycle = [int](Get-RotaProperty -Object $p -Name 'cycleWeeks' -Default $cycleWeeks)
-        $repeats = $enforce -and $personCycle -le 1 -and $cycleWeeks -gt 1
+        # Only 'weekly' collapses to a single decision. 'cycle' and 'none' both get one
+        # variable per week -- they differ in what the weeks mean, not in how they are placed.
+        $repeats = $enforce -and $p.RepeatsWeekly -and $cycleWeeks -gt 1
         if ($repeats) {
             $vars.Add([pscustomobject]@{
                     Person = $p; Name = $p.name; Weeks = @(1..$cycleWeeks)

@@ -52,13 +52,17 @@ Describe 'The shipped roster' {
         ($gaps | Measure-Object -Sum).Sum | Should -Be 18
     }
 
-    It 'puts Barbara on a two-week cycle and the other contracted staff on one' {
-        # Cover staff are deliberately two-week as well, so their weeks stay independent and
-        # they can be called on in one week without committing them to the other.
+    It 'puts Barbara on a fortnightly cycle and the other contracted staff on a weekly one' {
+        # Barbara is the only person whose contract genuinely differs between the weeks, so
+        # she is the only 'cycle'. Cover is excluded here because it is neither: see the
+        # repeat-mode tests below.
         foreach ($p in $script:Roster.SolvedStaff) {
             if (Get-RotaProperty -Object $p -Name 'temporary' -Default $false) { continue }
-            $cycle = Get-RotaProperty -Object $p -Name 'cycleWeeks' -Default 2
-            if ($p.name -eq 'Barbara') { $cycle | Should -Be 2 } else { $cycle | Should -Be 1 }
+            if ($p.name -eq 'Barbara') {
+                $p.RepeatMode | Should -Be 'cycle'
+                Get-RotaProperty -Object $p -Name 'cycleWeeks' | Should -Be 2
+            }
+            else { $p.RepeatMode | Should -Be 'weekly' }
         }
     }
 
@@ -73,6 +77,42 @@ Describe 'The shipped roster' {
             $fed.WeekSpec[$w].shifts | Should -Be 0
             (Get-RotaProperty -Object $fed.WeekSpec[$w] -Name 'maxShifts') | Should -BeGreaterThan 0
         }
+    }
+}
+
+Describe 'How a person''s weeks relate to each other' {
+    # One number used to answer two unrelated questions -- "does my rota repeat every week?"
+    # and "may my weeks be placed independently?" -- and two people carried the same value
+    # for opposite reasons. The repeat field says which is meant.
+
+    It 'reads the three modes off the shipped roster' -TestCases @(
+        @{ Name = 'Veronica'; Mode = 'weekly' }
+        @{ Name = 'Beatrice'; Mode = 'weekly' }
+        @{ Name = 'Barbara'; Mode = 'cycle' }
+        @{ Name = 'Federica'; Mode = 'none' }
+    ) {
+        $script:Roster.StaffByName[$Name].RepeatMode | Should -Be $Mode
+    }
+
+    It 'collapses to one decision only for a weekly person' {
+        $script:Roster.StaffByName['Veronica'].RepeatsWeekly | Should -BeTrue
+        $script:Roster.StaffByName['Barbara'].RepeatsWeekly | Should -BeFalse
+        $script:Roster.StaffByName['Federica'].RepeatsWeekly | Should -BeFalse
+    }
+
+    It 'still understands a config written before the field existed' {
+        # Old rosters carried cycleWeeks alone. They must keep loading, and keep behaving.
+        $legacy = [pscustomobject]@{ name = 'Old'; mode = 'solved'; cycleWeeks = 1 }
+        Get-RotaRepeatMode -Config $script:Roster -Person $legacy | Should -Be 'weekly'
+        $legacy = [pscustomobject]@{ name = 'Old'; mode = 'solved'; cycleWeeks = 2 }
+        Get-RotaRepeatMode -Config $script:Roster -Person $legacy | Should -Be 'cycle'
+    }
+
+    It 'REGRESSION: cover must not be forced to repeat its weeks' {
+        # Federica is cover. The shortfall is in week 1 only, so a weekly rota cannot take it
+        # without also working week 2, where there is no room -- and week 1 goes understaffed.
+        # This is why she is 'none' and not 'weekly'; it is not a stylistic choice.
+        $script:Roster.StaffByName['Federica'].RepeatsWeekly | Should -BeFalse
     }
 }
 
@@ -142,6 +182,29 @@ Describe 'Validation' {
             }) -Force
         $cfg = ConvertTo-RotaNormalisedConfig -Config $cfg
         Test-RotaConfig -Config $cfg | Should -Match 'unknown day'
+    }
+
+    It 'rejects a repeat mode it does not recognise' {
+        $cfg = New-TestRotaConfig
+        $cfg.staff[1] | Add-Member repeat 'fortnightly' -Force
+        $cfg = ConvertTo-RotaNormalisedConfig -Config $cfg
+        Test-RotaConfig -Config $cfg | Should -Contain "Solved: repeat must be 'weekly', 'cycle' or 'none'; got 'fortnightly'."
+    }
+
+    It 'rejects a cycle whose weeks are all the same, and says what to use instead' {
+        # Exactly the shape that caused the confusion: a cover worker written as a 2-week
+        # cycle when nothing about the two weeks differs.
+        $cfg = New-TestRotaConfig -PersonCycleWeeks 2
+        $cfg.staff[1] | Add-Member repeat 'cycle' -Force
+        $cfg = ConvertTo-RotaNormalisedConfig -Config $cfg
+        @(Test-RotaConfig -Config $cfg) -join ' ' | Should -BeLike "*no cycle to repeat*"
+    }
+
+    It 'rejects a weekly person who also declares a multi-week cycle' {
+        $cfg = New-TestRotaConfig -PersonCycleWeeks 2
+        $cfg.staff[1] | Add-Member repeat 'weekly' -Force
+        $cfg = ConvertTo-RotaNormalisedConfig -Config $cfg
+        @(Test-RotaConfig -Config $cfg) -join ' ' | Should -BeLike "*repeat is 'weekly' but cycleWeeks is 2*"
     }
 
     It 'reports every problem at once rather than stopping at the first' {

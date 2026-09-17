@@ -18,7 +18,7 @@
 Set-StrictMode -Version Latest
 
 $script:RotaCriteriaColumns = @('Name', 'Week', 'Doubles', 'Shifts', 'MaxShifts', 'Weekend', 'Lunch', 'Dinner')
-$script:RotaStaffColumns = @('Name', 'Contract', 'Mode', 'Responsable', 'Temporary', 'CycleWeeks',
+$script:RotaStaffColumns = @('Name', 'Contract', 'Mode', 'Responsable', 'Temporary', 'Repeat', 'CycleWeeks',
     'ConsecutiveDaysOff', 'Colour', 'DinnerStart', 'OfficeLunchDays')
 
 function ConvertTo-RotaBool {
@@ -112,7 +112,10 @@ function Get-RotaStaffRows {
             Mode               = $p.mode
             Responsable        = $p.IsResponsable
             Temporary          = [bool](Get-RotaProperty -Object $p -Name 'temporary' -Default $false)
-            CycleWeeks         = Get-RotaProperty -Object $p -Name 'cycleWeeks' -Default $Config.meta.cycleWeeks
+            Repeat             = $p.RepeatMode
+            # Only a 'cycle' has a length. Leaving it blank otherwise keeps the sheet from
+            # inviting someone to fill in a number that means nothing.
+            CycleWeeks         = $(if ($p.RepeatMode -eq 'cycle') { Get-RotaProperty -Object $p -Name 'cycleWeeks' -Default $Config.meta.cycleWeeks } else { '' })
             ConsecutiveDaysOff = Get-RotaProperty -Object $p -Name 'consecutiveDaysOff' -Default ''
             Colour             = Get-RotaProperty -Object $p -Name 'colour' -Default ''
             DinnerStart        = $(if ($null -ne $overrides) { Get-RotaProperty -Object $overrides -Name 'Dinner' -Default '' } else { '' })
@@ -288,6 +291,7 @@ function Import-RotaConfigExcel {
         }
         if (ConvertTo-RotaBool $row.Temporary) { $person['temporary'] = $true }
         if (-not [string]::IsNullOrWhiteSpace($row.Colour)) { $person['colour'] = "$($row.Colour)" }
+        if (-not [string]::IsNullOrWhiteSpace($row.Repeat)) { $person['repeat'] = "$($row.Repeat)".Trim().ToLowerInvariant() }
         if (-not [string]::IsNullOrWhiteSpace($row.CycleWeeks)) { $person['cycleWeeks'] = [int]$row.CycleWeeks }
         if (-not [string]::IsNullOrWhiteSpace($row.ConsecutiveDaysOff)) { $person['consecutiveDaysOff'] = [double]$row.ConsecutiveDaysOff }
         if (-not [string]::IsNullOrWhiteSpace($row.DinnerStart)) {

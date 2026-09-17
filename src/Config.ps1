@@ -47,6 +47,45 @@ function Import-RotaConfig {
     $config
 }
 
+function Get-RotaRepeatMode {
+    <#
+    .SYNOPSIS
+        How a person's weeks relate to one another: 'weekly', 'cycle' or 'none'.
+    .DESCRIPTION
+        The solver asks exactly one question about a person's weeks -- does this rota repeat
+        every week, or is each week placed on its own? Two quite different intentions used to
+        answer it through the same number, and a reader could not tell them apart:
+
+          weekly  The same rota every week. One decision, reused. (A 1-week cycle.)
+          cycle   The contract itself differs between weeks and repeats over cycleWeeks of
+                  them: someone whose week 1 and week 2 are genuinely different jobs.
+          none    No repetition is promised. Each week is placed independently, which is what
+                  cover staff need -- a gap in week 1 and nothing in week 2 is the right
+                  answer, and forcing their weeks to match would make them unusable.
+
+        'cycle' and 'none' can produce the same search structure, so the distinction is not
+        one the solver acts on; it is there so the file says which was meant, and so
+        validation can object when the stated intent and the week specs disagree.
+
+        Configs written before this field are read by their cycleWeeks, so they keep working
+        and keep their current behaviour.
+    .OUTPUTS
+        One of 'weekly', 'cycle', 'none'.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Config,
+        [Parameter(Mandatory)]$Person
+    )
+    $declared = Get-RotaProperty -Object $Person -Name 'repeat'
+    if (-not [string]::IsNullOrWhiteSpace($declared)) { return "$declared".Trim().ToLowerInvariant() }
+
+    # Legacy shape: cycleWeeks alone. 1 (or absent on a one-week rota) meant "repeats
+    # weekly"; anything larger meant "my weeks differ", which is 'cycle'.
+    $personCycle = [int](Get-RotaProperty -Object $Person -Name 'cycleWeeks' -Default $Config.meta.cycleWeeks)
+    if ($personCycle -le 1) { 'weekly' } else { 'cycle' }
+}
+
 function ConvertTo-RotaNormalisedConfig {
     <#
     .SYNOPSIS
@@ -74,13 +113,27 @@ function ConvertTo-RotaNormalisedConfig {
         }
         Add-Member -InputObject $p -NotePropertyName FixedByDay -NotePropertyValue $fixedByDay -Force
 
-        # Solved staff: week number -> spec. A 1-week cycle repeats week 1's spec.
+        # How this person's weeks relate to each other. See Get-RotaRepeatMode: it is the
+        # single question the solver asks, and answering it explicitly is what stops
+        # "repeats every week" and "place each week on its own" sharing one number.
+        $repeat = Get-RotaRepeatMode -Config $Config -Person $p
+        Add-Member -InputObject $p -NotePropertyName RepeatMode -NotePropertyValue $repeat -Force
+        Add-Member -InputObject $p -NotePropertyName RepeatsWeekly -NotePropertyValue ($repeat -eq 'weekly') -Force
+
+        # Solved staff: week number -> spec.
+        #   weekly  every week uses week 1's spec
+        #   cycle   the spec repeats every cycleWeeks weeks
+        #   none    every week uses its own spec, and nothing is promised to repeat
         $weekSpec = @{}
         $weeks = Get-RotaProperty -Object $p -Name 'weeks'
         if ($null -ne $weeks) {
             $personCycle = [int](Get-RotaProperty -Object $p -Name 'cycleWeeks' -Default $Config.meta.cycleWeeks)
             for ($w = 1; $w -le $Config.meta.cycleWeeks; $w++) {
-                $sourceWeek = if ($personCycle -le 1) { 1 } else { (($w - 1) % $personCycle) + 1 }
+                $sourceWeek = switch ($repeat) {
+                    'weekly' { 1 }
+                    'cycle' { if ($personCycle -le 1) { 1 } else { (($w - 1) % $personCycle) + 1 } }
+                    default { $w }
+                }
                 $weekSpec[$w] = $weeks."$sourceWeek"
             }
         }
@@ -124,6 +177,42 @@ function Test-RotaConfig {
         $seen[$name] = $true
 
         if ($p.mode -notin @('fixed', 'solved')) { $problems.Add("${name}: mode must be 'fixed' or 'solved'; got '$($p.mode)'.") }
+
+        # The repeat mode and the week specs have to tell the same story. These checks exist
+        # because two people once carried the same cycleWeeks for opposite reasons and the
+        # file gave a reader no way to tell which was which.
+        if ($p.RepeatMode -notin @('weekly', 'cycle', 'none')) {
+            $problems.Add("${name}: repeat must be 'weekly', 'cycle' or 'none'; got '$($p.RepeatMode)'.")
+        }
+        elseif ($p.IsSolved) {
+            $declaredCycle = Get-RotaProperty -Object $p -Name 'cycleWeeks'
+            $specs = @(1..$Config.meta.cycleWeeks | ForEach-Object { $p.WeekSpec[$_] | ConvertTo-Json -Depth 5 -Compress })
+            $allSame = (@($specs | Sort-Object -Unique).Count -le 1)
+
+            switch ($p.RepeatMode) {
+                'weekly' {
+                    if ($null -ne $declaredCycle -and [int]$declaredCycle -gt 1) {
+                        $problems.Add("${name}: repeat is 'weekly' but cycleWeeks is $declaredCycle. A weekly rota repeats every week; drop cycleWeeks, or say repeat 'cycle' if the weeks really differ.")
+                    }
+                }
+                'cycle' {
+                    if ($null -eq $declaredCycle -or [int]$declaredCycle -lt 2) {
+                        $problems.Add("${name}: repeat is 'cycle' but cycleWeeks is not set to 2 or more. A cycle needs to say how many weeks long it is.")
+                    }
+                    elseif ([int]$declaredCycle -gt $Config.meta.cycleWeeks) {
+                        $problems.Add("${name}: cycleWeeks is $declaredCycle but the rota is only $($Config.meta.cycleWeeks) weeks long.")
+                    }
+                    if ($allSame) {
+                        $problems.Add("${name}: repeat is 'cycle' but every week's spec is identical, so there is no cycle to repeat. Use 'weekly' if the same rota should run every week, or 'none' if the weeks just need placing independently -- which is what cover staff want.")
+                    }
+                }
+                'none' {
+                    if ($null -ne $declaredCycle) {
+                        $problems.Add("${name}: repeat is 'none', so nothing repeats and cycleWeeks ($declaredCycle) means nothing. Remove it.")
+                    }
+                }
+            }
+        }
 
         foreach ($day in $p.FixedByDay.Keys) {
             if (-not $Config.DayIndexOf.ContainsKey($day)) { $problems.Add("${name}: fixed references unknown day '$day'.") }

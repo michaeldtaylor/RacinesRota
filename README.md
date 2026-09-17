@@ -1,0 +1,327 @@
+# RacinesRota
+
+Generates the restaurant's two-week repeating rota from a declarative roster, checks it
+against the house rules, and exports JSON and Excel.
+
+```powershell
+.\Invoke-Rota.ps1
+```
+
+Writes `out\schedule.json` and `out\rota.xlsx`, prints a report, and exits non-zero if any
+hard rule is broken — so it can gate a scheduled run. Add `-NoExcel` for JSON only.
+
+---
+
+## Why this exists
+
+The rota was maintained by hand. Four staff work a fixed weekly pattern; the rest are placed
+around them according to contracts that differ per person — shifts per week, whether doubles
+are allowed, weekend availability, lunch/dinner eligibility, and a required run of consecutive
+days off. Barbara's two weeks are different jobs, so the whole rota is a 14-day repeating
+template rather than a single week.
+
+Doing that by hand is slow and quietly error-prone. It is easy to leave a service without a
+responsable, overshoot someone's contracted hours, or break a days-off guarantee and not
+notice. Worse, the failures are invisible: a rota that is two people short on a Thursday looks
+exactly like one that is fine until the Thursday arrives.
+
+The engine's job is therefore not only to produce a schedule but to **say plainly what it
+could not do**. Every shortfall, every unmet preference and every dependency on temporary
+staff is named in the output.
+
+---
+
+## The domain
+
+A **cycle** is 14 days: week 1 Lundi–Dimanche, week 2 Lundi–Dimanche. Each day has two
+**services** — lunch (staff start 10H) and dinner (18H, or 19H for Clémentine). Working both
+services in one day is a **double**. All 14 services a week are open, and each needs three
+people on the floor by default; individual services can ask for more or fewer
+(`coverage.overrides`).
+
+| Person | Contract | Role |
+|---|---|---|
+| Suyeon, Giulia, Lucas | RESP | Fixed pattern, responsable |
+| Clémentine | MI TEMPS | Fixed pattern |
+| Veronica | MI TEMPS | Placed by the engine |
+| Barbara, Beatrice | PLEIN TEMPS | Placed by the engine |
+| Federica | TEMPORAIRE | Cover only — leaving, must not be relied on |
+
+Slot eligibility vocabulary, taken from the original spreadsheet:
+`OBLIG` every shift must be this service · `NO` never this service ·
+`PREF` soft preference · `ANY` no preference.
+
+---
+
+## The rules
+
+**Hard** — a schedule breaking one of these is wrong, and the engine says so.
+
+| | Rule |
+|---|---|
+| H1 | Every open service has exactly its required number on the floor — under *or* over |
+| H2 | At least one responsable on every service |
+| H3 | Fixed rows are input and are never modified |
+| H4 | Nobody exceeds their contracted ceiling |
+| H5 | No doubles unless that person's week allows them |
+| H6 | `NO` means never; `OBLIG` means every shift |
+| H7 | No weekend work for someone unavailable at weekends |
+| H8 | Solved staff get their required run of consecutive days off, **in every week** |
+| H9 | The same floor applies to fixed staff (`rules.minConsecutiveDaysOffForEveryone`) |
+
+**Soft** — scored and traded off, never silently dropped.
+
+| | Preference |
+|---|---|
+| S1 | `PREF` slot honoured |
+| S2 | No isolated single working days |
+| S3 | Shift targets met (cost grows with the *square* of the deficit, so shortfalls spread rather than landing on one person) |
+| S5 | Weekend and dinner load spread evenly |
+| S6 | Admin lunches genuinely free, not load-bearing |
+| S7 | Temporary cover used as little as possible |
+
+There is no S4 — staffing levels are H1's job, in both directions, and the number was left
+free rather than renumbering the rest.
+
+Adding a rule means writing one function and adding one line to the registry in
+`src\Constraints.ps1`. Nothing else changes.
+
+---
+
+## Interpretation decisions
+
+These came out of the original spreadsheet and are recorded because they are judgement calls,
+not facts. All are config, not code — change them in `config\roster.json`.
+
+**Days off are measured per week, not per cycle** (`rules.daysOffScope`). One long break in
+week 2 does not excuse week 1 having none. Runs are measured on a ring, so a Saturday–Monday
+block straddling the boundary counts for both weeks it touches.
+
+**A half day only ever supplies the ".5"** in a requirement like Barbara's 3.5. The whole
+number must be met by whole days off. Without this, "lunch Monday, Tuesday off, lunch
+Wednesday" scores 2.0 and satisfies a two-days-in-a-row rule while giving nobody two days off
+in a row.
+
+**Each solved person says how their weeks relate to each other** (`staff[].repeat`):
+
+| | Meaning | Who |
+|---|---|---|
+| `weekly` | The same rota every week — one decision, reused | Veronica, Beatrice |
+| `cycle` | The contract itself differs between weeks and repeats over `cycleWeeks` of them | Barbara |
+| `none` | Nothing repeats; each week is placed on its own | Federica |
+
+Only `weekly` collapses to a single decision. `cycle` and `none` produce the same search
+structure and differ in what they *mean*, which is the point: one number used to answer both
+questions, and two people carried the same value for opposite reasons. Validation now rejects
+a `cycle` whose weeks are identical, and names the two better answers. Set
+`rules.enforcePersonCycleRepeat` to false to let a `weekly` person's weeks differ after all.
+
+The distinction is load-bearing for cover. Federica must be `none`: the shortfall is in week 1
+only, and a repeating week cannot take it without also working week 2, where there is no room
+— which leaves week 1 understaffed.
+
+**An office lunch still counts towards the three** (`rules.officeLunchCountsOnFloor`).
+Suyeon does admin but can step onto the floor. This contradicts the note on the original
+sheet — *"MEANING 4 ON SHIFT TOTAL"* — and was changed on instruction; it recovered three
+services. The engine reports (S6) whenever she is load-bearing rather than genuinely free.
+
+**Temporary staff are strictly additive.** See below.
+
+---
+
+## How the solver works
+
+The search is over whole **week patterns** rather than individual shifts, because every
+per-person rule is a property of someone's week. Enumerating legal weeks first means the
+search never visits a state that breaks one, and coverage becomes pure bitmask arithmetic —
+a person's week is a 14-bit mask, and coverage is tracked as one mask per (level, week).
+
+Six things make it tractable:
+
+1. **Shift-count pre-solve.** How many shifts each variable contributes is decided before any
+   pattern is examined, by solving a small integer problem over the week totals. Distributions
+   are then tried cheapest-first, costed on coverage shortfall, underrun and temporary cover.
+2. **Days off decided up front.** A variable spanning the whole cycle carries the same mask in
+   every week, so its days-off verdict is settled by that one pattern. Those are dropped
+   before the kernel sees them rather than after components are joined — the difference
+   between rejecting a dead branch at its root and walking the whole subtree beneath it.
+3. **One search per distinct capacity.** Office-lunch arrangements that leave identical
+   per-service gaps pose the identical problem. They are grouped, searched once, and the
+   masks handed to every arrangement in the group; they differ only in admin-lunch cost,
+   which exact scoring settles.
+4. **Independent components.** Variables interact only if they compete for capacity in the
+   same week. When nobody spans both weeks, the weeks are separate problems.
+5. **Zero-capacity masking.** A pattern touching a full service dies on a single `-band`.
+6. **Last-variable determination.** When a week must come out exactly full, the final
+   variable's pattern is whatever capacity remains — one hash lookup, not a domain scan.
+
+Prunes 2 and 3 were added after the shipped roster started exhausting its time budget: the
+search was visiting 6.8 million nodes, surrendering to the clock, and returning a single
+candidate — which is not a search result but an accident, since the scorer had nothing to
+choose between. It now completes in 11,605 nodes and about 8 seconds, considering 15
+candidates, and finds a better schedule than the one it used to time out on.
+
+### Two-pass temporary cover
+
+Cover staff must never make the rota *easier* — only fill what the permanent team genuinely
+cannot reach. A cost alone cannot promise that: the solver would still trade a contracted
+shift for a cover shift whenever the arithmetic suited. It did exactly that, dropping Beatrice
+from 7+7 to 6+6 while Federica picked up three shifts.
+
+So the permanent team is solved **first, on its own**, and its resulting shift counts become a
+floor for a second pass that includes cover. Cover can then only ever add on top.
+
+### Determinism
+
+Same config, same result, always — fixed iteration order throughout, with no random seed
+anywhere. This is what makes the tests meaningful.
+
+---
+
+## Layout
+
+```
+Invoke-Rota.ps1          CLI entry point
+config\roster.json       the roster: staff, contracts, rules, weights  <- the input
+src\Model.ps1            index arithmetic, masks, days-off measurement
+src\Config.ps1           loading, validation, normalisation, repeat modes
+src\Constraints.ps1      one evaluator per rule, in a registry
+src\SearchKernel.ps1     the depth-first search, in C# via Add-Type
+src\Solver.ps1           variables, components, orchestration, two-pass cover
+src\Report.ps1           coverage, people, temp exposure, violations
+src\Export.ps1           .xlsx output
+src\ConfigExcel.ps1      criteria as a workbook (see caveat below)
+tests\                   Pester suite
+```
+
+### Why one file is C#
+
+The search visits millions of nodes and PowerShell's per-call overhead dominated it — the
+original took 339 seconds. Moving just the kernel to C# took it to 27. `Add-Type` needs no
+.NET SDK, since PowerShell carries its own compiler, so the project still runs from a bare
+PowerShell 7 install. Everything else stays in PowerShell where it is readable and changeable.
+
+The kernel knows nothing about rota rules. It is handed pre-filtered pattern domains and a
+capacity model and returns the cheapest complete assignments it finds. Every rule lives in
+`Constraints.ps1`, which is also what scores the winner.
+
+Worth knowing before optimising further: the kernel is *not* the slow part any more. Setup in
+PowerShell is about 1.6 seconds a pass, roughly 3% of a run, so rewriting more of it in .NET
+would buy almost nothing. The wins came from searching less, not from searching faster.
+
+---
+
+## Testing
+
+```powershell
+Invoke-Pester .\tests -Output Normal
+```
+
+129 tests, about 20 seconds.
+
+| File | Covers |
+|---|---|
+| `Model.Tests.ps1` | Indexing, masks, days-off measurement, coverage overrides |
+| `Config.Tests.ps1` | Loading, validation, repeat modes, the shipped roster's figures |
+| `Constraints.Tests.ps1` | Every rule, passing **and** failing |
+| `Solver.Tests.ps1` | Search structure, determinism, cover behaviour |
+| `Integration.Tests.ps1` | The real roster, solved — tagged `Slow` |
+
+Most tests run against a small synthetic roster in `TestHelpers.ps1` that solves in about a
+second. The shipped roster's own figures — 7/7/7/3 fixed shifts, 18 gaps a week, Federica as
+the only temp with a zero target — are asserted in `Config.Tests.ps1`, so editing
+`roster.json` into a different shape fails loudly rather than producing a plausible rota for
+the wrong restaurant.
+
+Skip the slow ones while iterating:
+
+```powershell
+Invoke-Pester .\tests -ExcludeTagFilter Slow
+```
+
+Three tests are worth knowing about:
+
+- **Solver and constraint engine must agree on days off.** The solver has a fast inline copy
+  for speed; if the two drift, the search would silently discard good schedules and nothing
+  else would notice.
+- **Cover never reduces permanent hours.** The two-pass guarantee, asserted directly.
+- **The real roster's search completes.** `Integration.Tests.ps1` solves `roster.json` and
+  fails if the search times out or returns a single candidate. The synthetic fixture never
+  approaches the time budget, so nothing else in the suite can see that failure.
+
+Every bug found during development has a named `REGRESSION:` test.
+
+---
+
+## Known limitations
+
+**The Excel criteria workbook is untested.** `Export-RotaConfigExcel` and
+`Import-RotaConfigExcel` exist and round-trip staff, criteria, coverage overrides and rules,
+but `roster.json` is the input and nothing uses the importer. There are no tests for it.
+Treat it as unproven.
+
+**The search is bounded, not exhaustive.** It stops at a time budget
+(`solver.timeBudgetSeconds`) and searches a band of shift-count distributions
+(`solver.maxCostDrop`, a cost budget rather than a shift count). The result is the best found,
+not a proven global optimum. A run that hits the budget says so, and a timeout is never
+reported as "impossible" — those are very different answers about a roster.
+
+**Rows below 17 of the original spreadsheet were never supplied**, so any rules there are not
+implemented.
+
+**Contracted hours exceed what the rota can absorb, by two shifts a fortnight.** This is not a
+scheduling problem and no search setting fixes it:
+
+| | week 1 | week 2 |
+|---|---|---|
+| gaps to fill | 18 | 18 |
+| permanent staff contracted to fill them | 17 | **21** |
+
+Across the fortnight there are 36 gaps and 38 contracted shifts. Barbara's week 1 is capped at
+exactly five by her own terms — lunch only, no weekends, no doubles gives Monday to Friday
+lunch and no choice in it — so a full-time 14 forces nine into week 2, where there is room for
+six. **The contract stands as written**; the surplus is reported rather than hidden.
+
+Note that hiring does not resolve this. A new person adds contracted hours to *both* weeks,
+and in week 2 they would sit idle alongside Barbara. What a hire *would* cover is the hole
+Federica leaves behind: when she goes, **week 1 Mercredi and Jeudi dinners drop to two of
+three**. Everyone else is already at their ceiling, and Barbara cannot take them because her
+week 1 is `dinner: NO`.
+
+---
+
+## Configuration
+
+Everything lives in `config\roster.json`.
+
+| Key | Effect |
+|---|---|
+| `coverage.requiredPerService` | People needed per service, by default |
+| `coverage.overrides` | `{day, slot, required}` for services that differ from that default, in every week |
+| `coverage.closed` | Services that do not run at all |
+| `rules.daysOffScope` | `week` or `cycle` |
+| `rules.enforcePersonCycleRepeat` | Whether a `weekly` person really repeats |
+| `rules.officeLunchCountsOnFloor` | Whether an admin lunch counts towards the three |
+| `rules.minConsecutiveDaysOffForEveryone` | The floor that applies to fixed staff too |
+| `weights.*` | What the engine trades against what |
+| `solver.timeBudgetSeconds` | How long to search, per pass — and there are two passes |
+| `solver.maxCostDrop` | How far above the cheapest distribution to keep looking (a cost, not a count) |
+| `staff[].repeat` | `weekly`, `cycle` or `none` — see above |
+| `staff[].temporary` | Cover only — never used to solve |
+| `staff[].weeks.N.maxShifts` | Ceiling above the target, for cover staff |
+
+A person with `"temporary": true`, a target of `0` and a `maxShifts` ceiling is cover: charged
+per shift, used only where the permanent team cannot reach, and listed under **leaver
+exposure** in every report. Note that `contract: "TEMPORAIRE"` does *not* do this — the
+`temporary` flag is what the engine reads; the contract string is a label for the report.
+
+---
+
+## Requirements
+
+- PowerShell 7+
+- `Pester` 5+ for the tests — `Install-Module Pester -Scope CurrentUser`
+- `ImportExcel` for `.xlsx` output — `Install-Module ImportExcel -Scope CurrentUser`.
+  Optional: `.\Invoke-Rota.ps1 -NoExcel` writes JSON only and needs nothing extra.
+
+No .NET SDK required.

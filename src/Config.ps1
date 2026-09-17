@@ -165,6 +165,27 @@ function Test-RotaConfig {
     if (@($Config.slots) -join ',' -ne 'Lunch,Dinner') { $problems.Add("slots must be exactly ['Lunch','Dinner'].") }
     if ($Config.coverage.requiredPerService -lt 1) { $problems.Add("coverage.requiredPerService must be at least 1.") }
 
+    # Per-service coverage. A typo here silently staffs the wrong service, which is the kind
+    # of mistake nobody notices until the night it happens.
+    $closedKeys = @{}
+    foreach ($c in @($Config.coverage.closed)) {
+        if ($null -ne $c) { $closedKeys["$($c.day)|$($c.slot)"] = $true }
+    }
+    $seenOverride = @{}
+    foreach ($o in @(Get-RotaProperty -Object $Config.coverage -Name 'overrides')) {
+        if ($null -eq $o) { continue }
+        $where = "coverage.overrides for '$($o.day) $($o.slot)'"
+        if (-not $Config.DayIndexOf.ContainsKey($o.day)) { $problems.Add("${where}: unknown day '$($o.day)'.") }
+        if ($o.slot -notin @($Config.slots)) { $problems.Add("${where}: unknown slot '$($o.slot)'.") }
+        if (-not (Test-RotaHasProperty -Object $o -Name 'required')) { $problems.Add("${where}: no 'required' given.") }
+        elseif ([int]$o.required -lt 1) { $problems.Add("${where}: required must be at least 1; close the service instead of asking for $($o.required).") }
+
+        $key = "$($o.day)|$($o.slot)"
+        if ($seenOverride.ContainsKey($key)) { $problems.Add("${where}: listed more than once.") }
+        $seenOverride[$key] = $true
+        if ($closedKeys.ContainsKey($key)) { $problems.Add("${where}: the service is also listed as closed, so the two disagree about whether it runs.") }
+    }
+
     foreach ($d in $Config.weekendDays) {
         if (-not $Config.DayIndexOf.ContainsKey($d)) { $problems.Add("weekendDays contains unknown day '$d'.") }
     }

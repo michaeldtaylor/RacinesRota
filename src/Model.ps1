@@ -61,6 +61,12 @@ function Get-RotaServices {
     .DESCRIPTION
         Returns one object per (week, day, slot). Closed services carry Open = $false
         and Required = 0 so the rest of the engine can treat them uniformly.
+
+        coverage.requiredPerService is the house default. coverage.overrides raises or lowers
+        it for named services, because a Saturday dinner is not a Tuesday lunch and a single
+        number for all 28 of them cannot say so. An override names a day and a slot, so it
+        applies in every week of the cycle: how busy a service is belongs to the day of the
+        week, not to which half of the fortnight you happen to be in.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Config)
@@ -70,12 +76,19 @@ function Get-RotaServices {
         if ($null -ne $c) { $closed["$($c.day)|$($c.slot)"] = $true }
     }
 
+    $override = @{}
+    foreach ($o in @(Get-RotaProperty -Object $Config.coverage -Name 'overrides')) {
+        if ($null -ne $o) { $override["$($o.day)|$($o.slot)"] = [int]$o.required }
+    }
+
     $services = [System.Collections.Generic.List[object]]::new()
     for ($week = 1; $week -le $Config.meta.cycleWeeks; $week++) {
         for ($d = 0; $d -lt $Config.days.Count; $d++) {
             foreach ($slot in $Config.slots) {
                 $day = $Config.days[$d]
-                $isClosed = $closed.ContainsKey("$day|$slot")
+                $key = "$day|$slot"
+                $isClosed = $closed.ContainsKey($key)
+                $required = if ($override.ContainsKey($key)) { $override[$key] } else { [int]$Config.coverage.requiredPerService }
                 $services.Add([pscustomobject]@{
                         Index     = Get-RotaServiceIndex -Week $week -DayIndex $d -Slot $slot
                         SlotIndex = Get-RotaSlotIndex -DayIndex $d -Slot $slot
@@ -84,7 +97,7 @@ function Get-RotaServices {
                         Day       = $day
                         Slot      = $slot
                         Open      = -not $isClosed
-                        Required  = $(if ($isClosed) { 0 } else { [int]$Config.coverage.requiredPerService })
+                        Required  = $(if ($isClosed) { 0 } else { $required })
                         Key       = "W$week|$day|$slot"
                     })
             }

@@ -13,7 +13,9 @@
 
   "coverage": {
     "requiredPerService": 3,
-    "closed": []
+    "closed": [],
+    "_overridesNote": "Services that need more or fewer than requiredPerService. An override names a day and a slot, so it applies in every week of the cycle -- how busy a service is belongs to the day of the week, not to which half of the fortnight it is. Example: { \"day\": \"Samedi\", \"slot\": \"Dinner\", \"required\": 4 }.",
+    "overrides": []
   },
 
   "solver": {

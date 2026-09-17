@@ -11,7 +11,7 @@
 #   Staff      one row per person: contract, mode, cycle, days off, responsable, cover
 #   FixedGrid  the fixed rota, one column per day and service
 #   Criteria   per person per week: doubles, shifts, weekend, lunch, dinner eligibility
-#   Coverage   how many are needed per service, and any closed services
+#   Coverage   how many are needed per service, any per-service overrides, and closures
 #   Rules      the house rules
 #   Weights    what the engine trades off against what
 
@@ -159,6 +159,10 @@ function Get-RotaCoverageRows {
     foreach ($c in @($Config.coverage.closed)) {
         if ($null -ne $c) { [pscustomobject]@{ Setting = 'closed'; Value = "$($c.day)|$($c.slot)" } }
     }
+    # day|slot|required -- one row per service that differs from the house default.
+    foreach ($o in @(Get-RotaProperty -Object $Config.coverage -Name 'overrides')) {
+        if ($null -ne $o) { [pscustomobject]@{ Setting = 'required'; Value = "$($o.day)|$($o.slot)|$($o.required)" } }
+    }
 }
 
 function Get-RotaSettingRows {
@@ -238,8 +242,12 @@ function Import-RotaConfigExcel {
 
     $settings = @{}
     foreach ($row in $coverage) {
-        if ($row.Setting -eq 'closed') { continue }
+        if ($row.Setting -in @('closed', 'required')) { continue }
         $settings[$row.Setting] = $row.Value
+    }
+    $overrides = foreach ($row in ($coverage | Where-Object Setting -eq 'required')) {
+        $parts = "$($row.Value)" -split '\|'
+        if ($parts.Count -ge 3) { @{ day = $parts[0].Trim(); slot = $parts[1].Trim(); required = [int]$parts[2] } }
     }
     $closed = foreach ($row in ($coverage | Where-Object Setting -eq 'closed')) {
         $parts = "$($row.Value)".Split('|')
@@ -324,6 +332,7 @@ function Import-RotaConfigExcel {
         coverage    = [pscustomobject]@{
             requiredPerService = [int](if ($settings.ContainsKey('requiredPerService')) { $settings['requiredPerService'] } else { 3 })
             closed             = @($closed)
+            overrides          = @($overrides)
         }
         solver      = ConvertTo-RotaSettingsObject -Rows $solver
         weights     = ConvertTo-RotaSettingsObject -Rows $weights

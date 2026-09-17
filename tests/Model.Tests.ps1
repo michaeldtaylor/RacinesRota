@@ -209,3 +209,78 @@ Describe 'Schedule mutation' {
         Get-RotaWeekMask -Schedule $schedule -Person 'Solved' -Week 1 | Should -Be 0
     }
 }
+
+Describe 'Per-service coverage overrides' {
+    # A single requiredPerService cannot say that Saturday dinner is busier than Tuesday
+    # lunch. An override names the service and applies in every week, because how busy a
+    # service is belongs to the day of the week, not to which half of the fortnight it is.
+
+    BeforeAll {
+        $script:OverrideConfig = {
+            param($Overrides)
+            $cfg = New-TestRotaConfig -RequiredPerService 2
+            $cfg.coverage | Add-Member overrides $Overrides -Force
+            ConvertTo-RotaNormalisedConfig -Config $cfg
+        }
+    }
+
+    It 'raises the named service and leaves the rest on the house default' {
+        $cfg = & $script:OverrideConfig @([pscustomobject]@{ day = 'Samedi'; slot = 'Dinner'; required = 5 })
+        $services = Get-RotaServices -Config $cfg
+        foreach ($s in $services) {
+            $expected = if ($s.Day -eq 'Samedi' -and $s.Slot -eq 'Dinner') { 5 } else { 2 }
+            $s.Required | Should -Be $expected
+        }
+    }
+
+    It 'applies in every week of the cycle' {
+        $cfg = & $script:OverrideConfig @([pscustomobject]@{ day = 'Samedi'; slot = 'Dinner'; required = 5 })
+        $services = Get-RotaServices -Config $cfg   # assign first: the helper comma-wraps
+        $hit = @($services | Where-Object { $_.Required -eq 5 })
+        $hit.Count | Should -Be ([int]$cfg.meta.cycleWeeks)
+        @($hit | ForEach-Object Week | Sort-Object) | Should -Be @(1, 2)
+    }
+
+    It 'can lower a service as well as raise it' {
+        $cfg = & $script:OverrideConfig @([pscustomobject]@{ day = 'Mardi'; slot = 'Lunch'; required = 1 })
+        $services = Get-RotaServices -Config $cfg   # assign first: the helper comma-wraps
+        $s = @($services | Where-Object { $_.Day -eq 'Mardi' -and $_.Slot -eq 'Lunch' })[0]
+        $s.Required | Should -Be 1
+    }
+
+    It 'leaves a closed service closed, whatever an override asks for' {
+        $cfg = New-TestRotaConfig -RequiredPerService 2
+        $cfg.coverage.closed = @([pscustomobject]@{ day = 'Lundi'; slot = 'Lunch' })
+        $cfg.coverage | Add-Member overrides @([pscustomobject]@{ day = 'Lundi'; slot = 'Lunch'; required = 4 }) -Force
+        $cfg = ConvertTo-RotaNormalisedConfig -Config $cfg
+        $services = Get-RotaServices -Config $cfg   # assign first: the helper comma-wraps
+        $s = @($services | Where-Object { $_.Day -eq 'Lundi' -and $_.Slot -eq 'Lunch' })[0]
+        $s.Open | Should -BeFalse
+        $s.Required | Should -Be 0
+        # ...and the contradiction is reported rather than silently resolved.
+        @(Test-RotaConfig -Config $cfg) -join ' ' | Should -BeLike '*also listed as closed*'
+    }
+
+    It 'behaves exactly as before when no overrides are given' {
+        $cfg = New-TestRotaConfig -RequiredPerService 2
+        $services = Get-RotaServices -Config $cfg
+        foreach ($s in $services) { $s.Required | Should -Be 2 }
+    }
+
+    It 'rejects an override that names a service that does not exist' -TestCases @(
+        @{ Day = 'Caturday'; Slot = 'Dinner'; Required = 4; Like = "*unknown day 'Caturday'*" }
+        @{ Day = 'Samedi'; Slot = 'Brunch'; Required = 4; Like = "*unknown slot 'Brunch'*" }
+        @{ Day = 'Samedi'; Slot = 'Dinner'; Required = 0; Like = '*at least 1*' }
+    ) {
+        $cfg = & $script:OverrideConfig @([pscustomobject]@{ day = $Day; slot = $Slot; required = $Required })
+        @(Test-RotaConfig -Config $cfg) -join ' ' | Should -BeLike $Like
+    }
+
+    It 'rejects the same service listed twice, since the two disagree' {
+        $cfg = & $script:OverrideConfig @(
+            [pscustomobject]@{ day = 'Samedi'; slot = 'Dinner'; required = 4 }
+            [pscustomobject]@{ day = 'Samedi'; slot = 'Dinner'; required = 5 }
+        )
+        @(Test-RotaConfig -Config $cfg) -join ' ' | Should -BeLike '*listed more than once*'
+    }
+}

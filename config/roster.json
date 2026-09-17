@@ -99,7 +99,7 @@
 
     {
       "name": "Veronica",
-      "contract": "",
+      "contract": "MI TEMPS",
       "responsable": false,
       "mode": "solved",
       "colour": "#F4B183",
@@ -112,7 +112,7 @@
     },
     {
       "name": "Barbara",
-      "contract": "",
+      "contract": "PLEIN TEMPS",
       "responsable": false,
       "mode": "solved",
       "colour": "#A9D08E",

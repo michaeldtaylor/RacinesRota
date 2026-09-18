@@ -66,6 +66,8 @@ model, and `Constraints.ps1` scores the winner.
 **The kernel is not the slow part.** PowerShell setup is roughly 3% of a run. Wins come from
 searching less, not from rewriting more in C#.
 
-**`config\roster.json` holds real staff data** — names, contract types, and who is leaving.
-Keep it out of anything public, and prefer the synthetic fixture in `tests\TestHelpers.ps1`
-for examples.
+**Write examples against the synthetic fixture, not the real roster.**
+`New-TestRotaConfig` in `tests\TestHelpers.ps1` solves in about a second and takes parameters
+for the rule you are exercising, so a test can bend one thing without rebuilding the roster.
+`config\roster.json` is the live one — it belongs to the restaurant, its figures are asserted
+in `Config.Tests.ps1`, and editing it to make a test pass will fail those assertions.

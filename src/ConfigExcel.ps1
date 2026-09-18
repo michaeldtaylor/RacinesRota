@@ -97,7 +97,7 @@ function Write-RotaSheetFromRows {
         $r++
     }
     $ws.View.FreezePanes(2, 1)
-    $ws.Cells.AutoFitColumns()
+    Set-RotaColumnWidths -Worksheet $ws
 }
 
 function Get-RotaStaffRows {
@@ -208,7 +208,7 @@ function Write-RotaFixedGridSheet {
         $r++
     }
     $ws.View.FreezePanes(2, 2)
-    $ws.Cells.AutoFitColumns()
+    Set-RotaColumnWidths -Worksheet $ws
 }
 
 function Import-RotaConfigExcel {

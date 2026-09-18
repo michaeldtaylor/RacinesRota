@@ -36,7 +36,7 @@ Export-ModuleMember -Function @(
     'Initialize-RotaSearchKernel'
     # Report and export
     'Get-RotaCoverageReport', 'Get-RotaTempCoverReport', 'Get-RotaTemporaryExposureReport', 'Get-RotaPersonReport', 'Get-RotaSummary', 'Format-RotaGrid', 'Format-RotaReport'
-    'Get-RotaStartTime', 'ConvertTo-RotaObject', 'Export-RotaJson', 'Export-RotaExcel'
+    'Get-RotaStartTime', 'ConvertTo-RotaObject', 'Export-RotaJson', 'Export-RotaExcel', 'Set-RotaColumnWidths'
     'Export-RotaConfigExcel', 'Import-RotaConfigExcel', 'ConvertTo-RotaBool', 'ConvertTo-RotaSettingsObject'
 )
 

@@ -182,6 +182,33 @@ function Test-RotaWeekendAvailability {
     }
 }
 
+function Test-RotaAvailability {
+    <#  H10: nobody is rostered onto a service they are not available for. The week spec can
+        only speak in whole slots -- no weekends, lunches only -- so a person who can do
+        Monday dinner but no other dinner cannot be described by it at all. staff[].available
+        names the exact services, and this is the check that makes it binding: the solver
+        filters its pattern domains by the same mask, and if the two ever disagreed the
+        search would quietly offer shifts nobody can work.  #>
+    param([Parameter(Mandatory)]$Schedule)
+    $config = $Schedule.Config
+
+    foreach ($p in $config.staff) {
+        if ($null -eq $p.AvailableMask) { continue }
+        for ($w = 1; $w -le $config.meta.cycleWeeks; $w++) {
+            $worked = $Schedule.Masks["$($p.name)|$w"]
+            $outside = $worked -band -bnot $p.AvailableMask
+            if ($outside -eq 0) { continue }
+            for ($i = 0; $i -lt 14; $i++) {
+                if (-not ($outside -band (1 -shl $i))) { continue }
+                $where = ConvertFrom-RotaSlotIndex -SlotIndex $i
+                $day = $config.days[$where.DayIndex]
+                New-RotaViolation -Id 'H10-Availability' -Severity 'Hard' -Person $p.name -Week $w -Day $day -Slot $where.Slot `
+                    -Message "$($p.name) week ${w}: rostered on $day $($where.Slot), which they are not available for." -Cost 100000
+            }
+        }
+    }
+}
+
 function Test-RotaConsecutiveDaysOff {
     <#  H8/H9: each person gets their required run of consecutive days off in EVERY week.
         Runs are measured on the cycle ring, so a block straddling the week boundary counts
@@ -221,10 +248,12 @@ function Test-RotaConsecutiveDaysOff {
 # ---------------------------------------------------------------- soft constraints
 
 function Test-RotaSlotPreference {
-    <#  S1: PREF is honoured where it can be.  #>
+    <#  S1: PREF is honoured where it can be. A week may set its own preferenceWeight to say
+        this one matters more than the house default -- a preference that is nearly a rule
+        without being one, which is the difference between "would rather" and "must".  #>
     param([Parameter(Mandatory)]$Schedule)
     $config = $Schedule.Config
-    $weight = Get-RotaWeight -Config $config -Name 'slotPreference' -Default 10
+    $defaultWeight = Get-RotaWeight -Config $config -Name 'slotPreference' -Default 10
     foreach ($p in $config.SolvedStaff) {
         for ($w = 1; $w -le $config.meta.cycleWeeks; $w++) {
             $spec = $p.WeekSpec[$w]
@@ -240,6 +269,7 @@ function Test-RotaSlotPreference {
                 }
                 if ($n -gt 0) {
                     $preferred = if ($slot -eq 'Lunch') { 'Dinner' } else { 'Lunch' }
+                    $weight = [double](Get-RotaProperty -Object $spec -Name 'preferenceWeight' -Default $defaultWeight)
                     New-RotaViolation -Id 'S1-SlotPreference' -Severity 'Soft' -Person $p.name -Week $w -Slot $slot `
                         -Message "$($p.name) week ${w}: $n $slot shift(s) against a preference for $preferred." -Cost ($weight * $n)
                 }
@@ -420,6 +450,7 @@ function Get-RotaConstraints {
         [pscustomobject]@{ Id = 'H6-Eligibility'; Severity = 'Hard'; Test = ${function:Test-RotaSlotEligibility} }
         [pscustomobject]@{ Id = 'H7-Weekend'; Severity = 'Hard'; Test = ${function:Test-RotaWeekendAvailability} }
         [pscustomobject]@{ Id = 'H8-DaysOff'; Severity = 'Hard'; Test = ${function:Test-RotaConsecutiveDaysOff} }
+        [pscustomobject]@{ Id = 'H10-Availability'; Severity = 'Hard'; Test = ${function:Test-RotaAvailability} }
         [pscustomobject]@{ Id = 'S1-SlotPreference'; Severity = 'Soft'; Test = ${function:Test-RotaSlotPreference} }
         [pscustomobject]@{ Id = 'S2-IsolatedDay'; Severity = 'Soft'; Test = ${function:Test-RotaIsolatedWorkDays} }
         [pscustomobject]@{ Id = 'S5-Fairness'; Severity = 'Soft'; Test = ${function:Test-RotaFairness} }

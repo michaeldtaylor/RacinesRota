@@ -106,11 +106,13 @@
       "responsable": false,
       "mode": "solved",
       "colour": "#F4B183",
-      "repeat": "weekly",
+      "repeat": "cycle",
+      "cycleWeeks": 2,
+      "_repeatNote": "Week 2 is the week Barbara covers dinners and weekends, so Veronica leans hard towards lunches that week. Week 1 keeps the ordinary preference.",
       "consecutiveDaysOff": 2,
       "weeks": {
         "1": { "doubles": false, "shifts": 5, "weekend": true, "lunch": "PREF", "dinner": "ANY" },
-        "2": { "doubles": false, "shifts": 5, "weekend": true, "lunch": "PREF", "dinner": "ANY" }
+        "2": { "doubles": false, "shifts": 5, "weekend": true, "lunch": "PREF", "dinner": "ANY", "preferenceWeight": 120 }
       }
     },
     {
@@ -136,6 +138,13 @@
       "temporary": true,
       "colour": "#D9D9D9",
       "repeat": "none",
+      "_availableNote": "She can only work Monday lunch and evening, and lunch on Tuesday, Wednesday and Thursday. The week spec cannot say this -- it can only say 'no weekends' or 'lunches only' -- so it is named service by service here. Note this means she cannot cover Thursday dinner.",
+      "available": {
+        "Lundi": ["Lunch", "Dinner"],
+        "Mardi": ["Lunch"],
+        "Mercredi": ["Lunch"],
+        "Jeudi": ["Lunch"]
+      },
       "_repeatNote": "Cover, so nothing repeats: her two week specs are identical and each week is placed wherever the gap happens to be. Do not set this to 'weekly' -- it would force her to work the same shifts in both weeks, and since the shortfall is in week 1 only, she could not take it without also working week 2, where there is no room. That leaves week 1 understaffed.",
       "consecutiveDaysOff": 0,
       "_note": "Leaving. Available to plug gaps but must not be relied on: target is 0 shifts with a ceiling of 6 per week, and every shift she takes is charged (weights.temporaryShift) so the engine uses her only where the permanent team cannot cover. Everything she covers is listed under TEMP/LEAVER EXPOSURE in the report -- those are the shifts that become gaps when she goes.",

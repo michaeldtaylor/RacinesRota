@@ -68,6 +68,7 @@ Slot eligibility vocabulary, taken from the original spreadsheet:
 | H7 | No weekend work for someone unavailable at weekends |
 | H8 | Solved staff get their required run of consecutive days off, **in every week** |
 | H9 | The same floor applies to fixed staff (`rules.minConsecutiveDaysOffForEveryone`) |
+| H10 | Nobody is rostered on a service they are not available for (`staff[].available`) |
 
 **Soft** — scored and traded off, never silently dropped.
 
@@ -224,7 +225,7 @@ would buy almost nothing. The wins came from searching less, not from searching 
 Invoke-Pester .\tests -Output Normal
 ```
 
-136 tests, about 20 seconds.
+154 tests, about 25 seconds.
 
 | File | Covers |
 |---|---|
@@ -233,6 +234,7 @@ Invoke-Pester .\tests -Output Normal
 | `Constraints.Tests.ps1` | Every rule, passing **and** failing |
 | `Solver.Tests.ps1` | Search structure, determinism, cover behaviour |
 | `Integration.Tests.ps1` | The real roster, solved — tagged `Slow` |
+| `ConfigExcel.Tests.ps1` | The roster through the workbook and back — tagged `Slow` |
 
 Most tests run against a small synthetic roster in `TestHelpers.ps1` that solves in about a
 second. The shipped roster's own figures — 7/7/7/3 fixed shifts, 18 gaps a week, Federica as
@@ -262,10 +264,13 @@ Every bug found during development has a named `REGRESSION:` test.
 
 ## Known limitations
 
-**The Excel criteria workbook is untested.** `Export-RotaConfigExcel` and
-`Import-RotaConfigExcel` exist and round-trip staff, criteria, coverage overrides and rules,
-but `roster.json` is the input and nothing uses the importer. There are no tests for it.
-Treat it as unproven.
+**The Excel criteria workbook is not the input.** `Export-RotaConfigExcel` and
+`Import-RotaConfigExcel` round-trip staff, criteria, availability, coverage overrides and
+rules, and `ConfigExcel.Tests.ps1` now proves a full roster survives the trip and solves to
+the same score. But `roster.json` is still what the engine is driven from, and nothing in
+normal use goes through the workbook. Adding a config field means adding it to both sides, or
+the sheet loses it silently the first time somebody edits it — that round-trip test is what
+catches this.
 
 **The search is bounded, not exhaustive.** It stops at a time budget
 (`solver.timeBudgetSeconds`) and searches a band of shift-count distributions
@@ -316,6 +321,8 @@ Everything lives in `config\roster.json`.
 | `staff[].repeat` | `weekly`, `cycle` or `none` — see above |
 | `staff[].consecutiveDaysOff` | The run of days off this person is **owed** (hard) |
 | `staff[].preferredConsecutiveDaysOff` | A longer run they would **like** (soft, S8). Must be above what they are owed, or it is rejected as dead config |
+| `staff[].available` | `{day: [slots]}` — the exact services this person can work. Absent means no restriction. The week spec can only say "no weekends" or "lunches only"; this says "Monday dinner but no other dinner" |
+| `staff[].weeks.N.preferenceWeight` | What a missed `PREF` costs in *this* week, overriding `weights.slotPreference`. Use it for a preference that is nearly a rule without being one |
 | `staff[].temporary` | Cover only — never used to solve |
 | `staff[].weeks.N.maxShifts` | Ceiling above the target, for cover staff |
 

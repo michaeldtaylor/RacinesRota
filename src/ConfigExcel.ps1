@@ -17,9 +17,9 @@
 
 Set-StrictMode -Version Latest
 
-$script:RotaCriteriaColumns = @('Name', 'Week', 'Doubles', 'Shifts', 'MaxShifts', 'Weekend', 'Lunch', 'Dinner')
+$script:RotaCriteriaColumns = @('Name', 'Week', 'Doubles', 'Shifts', 'MaxShifts', 'Weekend', 'Lunch', 'Dinner', 'PreferenceWeight')
 $script:RotaStaffColumns = @('Name', 'Contract', 'Mode', 'Responsable', 'Temporary', 'Repeat', 'CycleWeeks',
-    'ConsecutiveDaysOff', 'Colour', 'DinnerStart', 'OfficeLunchDays')
+    'ConsecutiveDaysOff', 'PreferredDaysOff', 'Available', 'Colour', 'DinnerStart', 'OfficeLunchDays')
 
 function ConvertTo-RotaBool {
     <#  Excel round-trips booleans as TRUE/FALSE/1/0/yes depending on how they were typed.  #>
@@ -117,6 +117,13 @@ function Get-RotaStaffRows {
             # inviting someone to fill in a number that means nothing.
             CycleWeeks         = $(if ($p.RepeatMode -eq 'cycle') { Get-RotaProperty -Object $p -Name 'cycleWeeks' -Default $Config.meta.cycleWeeks } else { '' })
             ConsecutiveDaysOff = Get-RotaProperty -Object $p -Name 'consecutiveDaysOff' -Default ''
+            PreferredDaysOff   = Get-RotaProperty -Object $p -Name 'preferredConsecutiveDaysOff' -Default ''
+            # "Lundi:Lunch+Dinner; Mardi:Lunch" -- empty means no restriction, which is not
+            # the same as available for nothing.
+            Available          = $(if ($null -eq $p.AvailableMask) { '' } else {
+                    (@($Config.days | Where-Object { $p.AvailableByDay.ContainsKey($_) } |
+                        ForEach-Object { "${_}:" + (@($p.AvailableByDay[$_]) -join '+') }) -join '; ')
+                })
             Colour             = Get-RotaProperty -Object $p -Name 'colour' -Default ''
             DinnerStart        = $(if ($null -ne $overrides) { Get-RotaProperty -Object $overrides -Name 'Dinner' -Default '' } else { '' })
             OfficeLunchDays    = $(if ($null -ne $office) { @($office.candidateDays) -join ', ' } else { '' })
@@ -142,6 +149,7 @@ function Get-RotaCriteriaRows {
                 Weekend   = [bool]$spec.weekend
                 Lunch     = $spec.lunch
                 Dinner    = $spec.dinner
+                PreferenceWeight = Get-RotaProperty -Object $spec -Name 'preferenceWeight' -Default ''
             }
         }
     }
@@ -255,7 +263,8 @@ function Import-RotaConfigExcel {
     }
 
     $days = @('Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche')
-    $cycleWeeks = [int](if ($settings.ContainsKey('cycleWeeks')) { $settings['cycleWeeks'] } else { 2 })
+    # [int](if ...) does not parse as a cast -- the subexpression needs $().
+    $cycleWeeks = [int]$(if ($settings.ContainsKey('cycleWeeks')) { $settings['cycleWeeks'] } else { 2 })
 
     # Criteria rows are keyed by person and week; group them before building each person.
     $byPerson = @{}
@@ -270,6 +279,7 @@ function Import-RotaConfigExcel {
             dinner  = "$($row.Dinner)".Trim().ToUpper()
         }
         if (-not [string]::IsNullOrWhiteSpace($row.MaxShifts)) { $spec['maxShifts'] = [int]$row.MaxShifts }
+        if (-not [string]::IsNullOrWhiteSpace($row.PreferenceWeight)) { $spec['preferenceWeight'] = [double]$row.PreferenceWeight }
         $byPerson[$row.Name]["$($row.Week)"] = [pscustomobject]$spec
     }
 
@@ -300,6 +310,16 @@ function Import-RotaConfigExcel {
         if (ConvertTo-RotaBool $row.Temporary) { $person['temporary'] = $true }
         if (-not [string]::IsNullOrWhiteSpace($row.Colour)) { $person['colour'] = "$($row.Colour)" }
         if (-not [string]::IsNullOrWhiteSpace($row.Repeat)) { $person['repeat'] = "$($row.Repeat)".Trim().ToLowerInvariant() }
+        if (-not [string]::IsNullOrWhiteSpace($row.PreferredDaysOff)) { $person['preferredConsecutiveDaysOff'] = [double]$row.PreferredDaysOff }
+        if (-not [string]::IsNullOrWhiteSpace($row.Available)) {
+            $avail = @{}
+            foreach ($entry in ("$($row.Available)" -split ';')) {
+                $bits = $entry -split ':'
+                if ($bits.Count -lt 2) { continue }
+                $avail[$bits[0].Trim()] = @($bits[1] -split '\+' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            }
+            if ($avail.Count -gt 0) { $person['available'] = $avail }
+        }
         if (-not [string]::IsNullOrWhiteSpace($row.CycleWeeks)) { $person['cycleWeeks'] = [int]$row.CycleWeeks }
         if (-not [string]::IsNullOrWhiteSpace($row.ConsecutiveDaysOff)) { $person['consecutiveDaysOff'] = [double]$row.ConsecutiveDaysOff }
         if (-not [string]::IsNullOrWhiteSpace($row.DinnerStart)) {
@@ -330,7 +350,7 @@ function Import-RotaConfigExcel {
             Dinner = $(if ($settings.ContainsKey('dinnerStart')) { "$($settings['dinnerStart'])" } else { '18H' })
         }
         coverage    = [pscustomobject]@{
-            requiredPerService = [int](if ($settings.ContainsKey('requiredPerService')) { $settings['requiredPerService'] } else { 3 })
+            requiredPerService = [int]$(if ($settings.ContainsKey('requiredPerService')) { $settings['requiredPerService'] } else { 3 })
             closed             = @($closed)
             overrides          = @($overrides)
         }

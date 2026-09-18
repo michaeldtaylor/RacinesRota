@@ -47,6 +47,29 @@ function Import-RotaConfig {
     $config
 }
 
+function Get-RotaNameValuePairs {
+    <#
+    .SYNOPSIS
+        Enumerate a day-keyed map whether it came from JSON or from a workbook.
+    .DESCRIPTION
+        roster.json parses into PSCustomObjects, whose members come from PSObject.Properties.
+        The Excel importer builds the same maps as hashtables, whose members do not -- asking
+        a hashtable for PSObject.Properties yields Keys, Values and Count rather than the
+        days. Reading one shape with the other's accessor produces an empty map and no error,
+        which is how a person's availability quietly became "nothing at all".
+    .OUTPUTS
+        Objects with Name and Value.
+    #>
+    [CmdletBinding()]
+    param($Map)
+    if ($null -eq $Map) { return }
+    if ($Map -is [System.Collections.IDictionary]) {
+        foreach ($key in $Map.Keys) { [pscustomobject]@{ Name = $key; Value = $Map[$key] } }
+        return
+    }
+    foreach ($prop in $Map.PSObject.Properties) { [pscustomobject]@{ Name = $prop.Name; Value = $prop.Value } }
+}
+
 function Get-RotaRepeatMode {
     <#
     .SYNOPSIS
@@ -109,7 +132,7 @@ function ConvertTo-RotaNormalisedConfig {
         $fixedByDay = @{}
         $fixed = Get-RotaProperty -Object $p -Name 'fixed'
         if ($null -ne $fixed) {
-            foreach ($prop in $fixed.PSObject.Properties) { $fixedByDay[$prop.Name] = @($prop.Value) }
+            foreach ($entry in (Get-RotaNameValuePairs -Map $fixed)) { $fixedByDay[$entry.Name] = @($entry.Value) }
         }
         Add-Member -InputObject $p -NotePropertyName FixedByDay -NotePropertyValue $fixedByDay -Force
 
@@ -138,6 +161,26 @@ function ConvertTo-RotaNormalisedConfig {
             }
         }
         Add-Member -InputObject $p -NotePropertyName WeekSpec -NotePropertyValue $weekSpec -Force
+
+        # Per-day availability: which services this person can work at all. Distinct from the
+        # week spec, which can only say "no weekends" or "lunches only" -- it cannot say
+        # "Monday lunch and dinner, but Tuesday lunch only". Absent means no restriction.
+        $availableByDay = @{}
+        $availableMask = $null
+        $available = Get-RotaProperty -Object $p -Name 'available'
+        if ($null -ne $available) {
+            $availableMask = 0
+            foreach ($entry in (Get-RotaNameValuePairs -Map $available)) {
+                $availableByDay[$entry.Name] = @($entry.Value)
+                if (-not $dayIndex.ContainsKey($entry.Name)) { continue }
+                foreach ($slot in @($entry.Value)) {
+                    if ($slot -notin @('Lunch', 'Dinner')) { continue }
+                    $availableMask = $availableMask -bor (1 -shl (Get-RotaSlotIndex -DayIndex $dayIndex[$entry.Name] -Slot $slot))
+                }
+            }
+        }
+        Add-Member -InputObject $p -NotePropertyName AvailableByDay -NotePropertyValue $availableByDay -Force
+        Add-Member -InputObject $p -NotePropertyName AvailableMask -NotePropertyValue $availableMask -Force
 
         Add-Member -InputObject $p -NotePropertyName IsSolved -NotePropertyValue ($p.mode -eq 'solved') -Force
         Add-Member -InputObject $p -NotePropertyName IsResponsable -NotePropertyValue ([bool]$p.responsable) -Force
@@ -198,6 +241,16 @@ function Test-RotaConfig {
         $seen[$name] = $true
 
         if ($p.mode -notin @('fixed', 'solved')) { $problems.Add("${name}: mode must be 'fixed' or 'solved'; got '$($p.mode)'.") }
+
+        foreach ($day in $p.AvailableByDay.Keys) {
+            if (-not $Config.DayIndexOf.ContainsKey($day)) { $problems.Add("${name}: available references unknown day '$day'.") }
+            foreach ($slot in $p.AvailableByDay[$day]) {
+                if ($slot -notin @($Config.slots)) { $problems.Add("${name}: available lists unknown slot '$slot' on $day.") }
+            }
+        }
+        if ($null -ne $p.AvailableMask -and $p.AvailableMask -eq 0) {
+            $problems.Add("${name}: available is present but lists nothing workable, so they can never be rostered. Remove it, or give them a day.")
+        }
 
         # A preference below what someone is already owed is dead config, and reads as though
         # it were doing something.

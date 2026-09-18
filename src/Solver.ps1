@@ -75,6 +75,9 @@ function Get-RotaAllowedMask {
             $mask = $mask -bor (1 -shl (Get-RotaSlotIndex -DayIndex $d -Slot $slot))
         }
     }
+    # Per-day availability, where it is given, is a further restriction on top of the week
+    # rules -- it can say things they cannot, like dinner on Monday but not on Tuesday.
+    if ($null -ne $Person.AvailableMask) { $mask = $mask -band $Person.AvailableMask }
     $mask
 }
 
@@ -371,7 +374,7 @@ function Get-RotaProxyScore {
         [Parameter(Mandatory)]$Config,
         [Parameter(Mandatory)][hashtable]$Masks
     )
-    $prefW = Get-RotaWeight -Config $Config -Name 'slotPreference' -Default 10
+    $defaultPrefW = Get-RotaWeight -Config $Config -Name 'slotPreference' -Default 10
     $underW = Get-RotaWeight -Config $Config -Name 'shiftUnderrun' -Default 200
     $score = 0.0
     foreach ($p in $Config.SolvedStaff) {
@@ -383,6 +386,7 @@ function Get-RotaProxyScore {
             foreach ($slot in @('Lunch', 'Dinner')) {
                 $otherRule = if ($slot -eq 'Lunch') { $spec.dinner } else { $spec.lunch }
                 if ($otherRule -ne 'PREF') { continue }
+                $prefW = [double](Get-RotaProperty -Object $spec -Name 'preferenceWeight' -Default $defaultPrefW)
                 for ($d = 0; $d -lt $Config.days.Count; $d++) {
                     if ($mask -band (1 -shl (Get-RotaSlotIndex -DayIndex $d -Slot $slot))) { $score += $prefW }
                 }
@@ -560,7 +564,11 @@ function Get-RotaVariableCosts {
         [Parameter(Mandatory)][int[]]$Masks
     )
     $spec = $Variable.Person.WeekSpec[$Variable.SpecWeek]
-    $prefW = Get-RotaWeight -Config $Config -Name 'slotPreference' -Default 10
+    # Honour the week's own preference weight, or the shortlist would rank by the house
+    # default while the exact scorer used a different number -- and the schedules the
+    # preference is meant to favour would never reach scoring.
+    $prefW = [double](Get-RotaProperty -Object $spec -Name 'preferenceWeight' `
+            -Default (Get-RotaWeight -Config $Config -Name 'slotPreference' -Default 10))
     $underW = Get-RotaWeight -Config $Config -Name 'shiftUnderrun' -Default 200
     $tempW = Get-RotaWeight -Config $Config -Name 'temporaryShift' -Default 300
     $isTemp = [bool](Get-RotaProperty -Object $Variable.Person -Name 'temporary' -Default $false)

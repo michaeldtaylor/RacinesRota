@@ -52,17 +52,15 @@ Describe 'The shipped roster' {
         ($gaps | Measure-Object -Sum).Sum | Should -Be 18
     }
 
-    It 'puts Barbara on a fortnightly cycle and the other contracted staff on a weekly one' {
-        # Barbara is the only person whose contract genuinely differs between the weeks, so
-        # she is the only 'cycle'. Cover is excluded here because it is neither: see the
-        # repeat-mode tests below.
+    It 'puts Barbara and Veronica on a fortnightly cycle, Beatrice on a weekly one' {
+        # Barbara's two weeks are different jobs. Veronica's differ too, since week 2 -- the
+        # week Barbara covers dinners -- leans hard towards lunches for her. Beatrice works
+        # the same week every week. Cover is excluded: it is neither, see below.
+        $expected = @{ Barbara = 'cycle'; Veronica = 'cycle'; Beatrice = 'weekly' }
         foreach ($p in $script:Roster.SolvedStaff) {
             if (Get-RotaProperty -Object $p -Name 'temporary' -Default $false) { continue }
-            if ($p.name -eq 'Barbara') {
-                $p.RepeatMode | Should -Be 'cycle'
-                Get-RotaProperty -Object $p -Name 'cycleWeeks' | Should -Be 2
-            }
-            else { $p.RepeatMode | Should -Be 'weekly' }
+            $p.RepeatMode | Should -Be $expected[$p.name]
+            if ($expected[$p.name] -eq 'cycle') { Get-RotaProperty -Object $p -Name 'cycleWeeks' | Should -Be 2 }
         }
     }
 
@@ -86,7 +84,7 @@ Describe 'How a person''s weeks relate to each other' {
     # for opposite reasons. The repeat field says which is meant.
 
     It 'reads the three modes off the shipped roster' -TestCases @(
-        @{ Name = 'Veronica'; Mode = 'weekly' }
+        @{ Name = 'Veronica'; Mode = 'cycle' }
         @{ Name = 'Beatrice'; Mode = 'weekly' }
         @{ Name = 'Barbara'; Mode = 'cycle' }
         @{ Name = 'Federica'; Mode = 'none' }
@@ -95,7 +93,8 @@ Describe 'How a person''s weeks relate to each other' {
     }
 
     It 'collapses to one decision only for a weekly person' {
-        $script:Roster.StaffByName['Veronica'].RepeatsWeekly | Should -BeTrue
+        $script:Roster.StaffByName['Beatrice'].RepeatsWeekly | Should -BeTrue
+        $script:Roster.StaffByName['Veronica'].RepeatsWeekly | Should -BeFalse
         $script:Roster.StaffByName['Barbara'].RepeatsWeekly | Should -BeFalse
         $script:Roster.StaffByName['Federica'].RepeatsWeekly | Should -BeFalse
     }

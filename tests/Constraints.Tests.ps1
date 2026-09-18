@@ -358,3 +358,96 @@ Describe 'S8 days-off preference' {
         @($a.Violations | Where-Object Id -eq 'S8-DaysOffPreference') | Should -BeNullOrEmpty
     }
 }
+
+Describe 'H10 per-day availability' {
+    # A week spec speaks in whole slots -- no weekends, lunches only. It cannot say "Monday
+    # dinner but no other dinner". staff[].available names the exact services.
+
+    BeforeAll {
+        function New-AvailabilityConfig {
+            param($Available, [int]$Shifts = 2)
+            $cfg = New-TestRotaConfig -SolvedShifts $Shifts
+            $cfg.staff[1] | Add-Member -NotePropertyName available -NotePropertyValue ([pscustomobject]$Available) -Force
+            ConvertTo-RotaNormalisedConfig -Config $cfg
+        }
+    }
+
+    It 'says nothing when no availability is declared' {
+        $cfg = New-TestRotaConfig
+        $mask = New-RotaMaskFromDays -Config $cfg -Days @{ Lundi = 'LD'; Samedi = 'LD' }
+        $schedule = New-ScheduleWithSolved -Config $cfg -Week1Mask $mask
+        @(Test-RotaAvailability -Schedule $schedule) | Should -BeNullOrEmpty
+    }
+
+    It 'accepts a roster inside the declared availability' {
+        $cfg = New-AvailabilityConfig @{ Lundi = @('Lunch', 'Dinner'); Mardi = @('Lunch') }
+        $mask = New-RotaMaskFromDays -Config $cfg -Days @{ Lundi = 'LD'; Mardi = 'L' }
+        $schedule = New-ScheduleWithSolved -Config $cfg -Week1Mask $mask
+        @(Test-RotaAvailability -Schedule $schedule) | Should -BeNullOrEmpty
+    }
+
+    It 'names the exact service when someone is rostered outside it' {
+        # Available for Tuesday lunch only, but rostered on Tuesday dinner.
+        $cfg = New-AvailabilityConfig @{ Lundi = @('Lunch'); Mardi = @('Lunch') }
+        $mask = New-RotaMaskFromDays -Config $cfg -Days @{ Lundi = 'L'; Mardi = 'D' }
+        $schedule = New-ScheduleWithSolved -Config $cfg -Week1Mask $mask -Week2Mask 0
+
+        $v = @(Test-RotaAvailability -Schedule $schedule)
+        $v.Count | Should -Be 1
+        $v[0].Severity | Should -Be 'Hard'
+        $v[0].Id | Should -Be 'H10-Availability'
+        $v[0].Day | Should -Be 'Mardi'
+        $v[0].Slot | Should -Be 'Dinner'
+        $v[0].Message | Should -Match 'not available'
+    }
+
+    It 'distinguishes days: dinner allowed on one day is not allowed on another' {
+        $cfg = New-AvailabilityConfig @{ Lundi = @('Lunch', 'Dinner'); Mardi = @('Lunch') }
+        $ok = New-RotaMaskFromDays -Config $cfg -Days @{ Lundi = 'D' }
+        $bad = New-RotaMaskFromDays -Config $cfg -Days @{ Mardi = 'D' }
+        @(Test-RotaAvailability -Schedule (New-ScheduleWithSolved -Config $cfg -Week1Mask $ok -Week2Mask 0)) | Should -BeNullOrEmpty
+        @(Test-RotaAvailability -Schedule (New-ScheduleWithSolved -Config $cfg -Week1Mask $bad -Week2Mask 0)).Count | Should -Be 1
+    }
+
+    It 'REGRESSION: the solver never offers a service the person is unavailable for' {
+        # The solver filters its pattern domains by the same mask. If the two ever disagreed
+        # the search would quietly propose shifts nobody can work, and only this would catch it.
+        $cfg = New-AvailabilityConfig -Available @{ Lundi = @('Lunch', 'Dinner'); Mardi = @('Lunch') } -Shifts 3
+        $allowed = Get-RotaAllowedMask -Config $cfg -Person $cfg.staff[1] -Week 1
+        ($allowed -band -bnot $cfg.staff[1].AvailableMask) | Should -Be 0
+
+        $patterns = Get-RotaWeekPatterns -Config $cfg -Person $cfg.staff[1] -Week 1 -MinShifts 0 -MaxShifts 3
+        foreach ($count in $patterns.Keys) {
+            foreach ($m in $patterns[$count]) { ($m -band -bnot $cfg.staff[1].AvailableMask) | Should -Be 0 }
+        }
+    }
+
+    It 'rejects availability that names a day or slot that does not exist' {
+        $cfg = New-AvailabilityConfig @{ Caturday = @('Lunch') }
+        @(Test-RotaConfig -Config $cfg) -join ' ' | Should -BeLike "*unknown day 'Caturday'*"
+        $cfg2 = New-AvailabilityConfig @{ Lundi = @('Brunch') }
+        @(Test-RotaConfig -Config $cfg2) -join ' ' | Should -BeLike "*unknown slot 'Brunch'*"
+    }
+
+    It 'rejects availability that lists nothing workable' {
+        $cfg = New-AvailabilityConfig @{}
+        @(Test-RotaConfig -Config $cfg) -join ' ' | Should -BeLike '*can never be rostered*'
+    }
+}
+
+Describe 'A week can weigh its own slot preference' {
+    It 'costs a missed preference more when the week says it matters more' {
+        $plain = New-TestRotaConfig -Lunch 'PREF' -Dinner 'ANY' -SolvedShifts 2
+        $heavy = New-TestRotaConfig -Lunch 'PREF' -Dinner 'ANY' -SolvedShifts 2
+        foreach ($w in '1', '2') {
+            $heavy.staff[1].weeks.$w | Add-Member -NotePropertyName preferenceWeight -NotePropertyValue 120 -Force
+        }
+        $heavy = ConvertTo-RotaNormalisedConfig -Config $heavy
+
+        $mask = New-RotaMaskFromDays -Config $plain -Days @{ Lundi = 'D'; Mardi = 'D' }
+        $plainCost = (@(Test-RotaSlotPreference -Schedule (New-ScheduleWithSolved -Config $plain -Week1Mask $mask)) | Measure-Object Cost -Sum).Sum
+        $heavyCost = (@(Test-RotaSlotPreference -Schedule (New-ScheduleWithSolved -Config $heavy -Week1Mask $mask)) | Measure-Object Cost -Sum).Sum
+        $heavyCost | Should -BeGreaterThan $plainCost
+        $heavyCost | Should -Be ($plainCost * 12)      # 120 against the default 10
+    }
+}

@@ -16,7 +16,7 @@ foreach ($file in @('Model.ps1', 'Config.ps1', 'Constraints.ps1', 'SearchKernel.
 Export-ModuleMember -Function @(
     # Config
     'Import-RotaConfig', 'Test-RotaConfig', 'ConvertTo-RotaNormalisedConfig', 'Add-RotaFixedStaff',
-    'Get-RotaProperty', 'Test-RotaHasProperty', 'Get-RotaRepeatMode'
+    'Get-RotaProperty', 'Test-RotaHasProperty', 'Get-RotaRepeatMode', 'Get-RotaNameValuePairs'
     # Model
     'Get-RotaSlotIndex', 'Get-RotaServiceIndex', 'ConvertFrom-RotaSlotIndex', 'Get-RotaServices'
     'New-RotaSchedule', 'Add-RotaAssignment', 'Set-RotaWeekMask', 'Get-RotaWeekMask'
@@ -27,7 +27,7 @@ Export-ModuleMember -Function @(
     'Get-RotaConstraints', 'Test-RotaSchedule', 'Get-RotaScore', 'New-RotaViolation', 'Get-RotaWeight'
     'Test-RotaCoverage', 'Test-RotaResponsable', 'Test-RotaFixedAssignments', 'Test-RotaShiftCount'
     'Test-RotaDoubles', 'Test-RotaSlotEligibility', 'Test-RotaWeekendAvailability'
-    'Test-RotaConsecutiveDaysOff', 'Test-RotaDaysOffPreference', 'Test-RotaSlotPreference', 'Test-RotaIsolatedWorkDays', 'Test-RotaFairness', 'Test-RotaOfficeLunchProtected', 'Test-RotaTemporaryStaff'
+    'Test-RotaConsecutiveDaysOff', 'Test-RotaDaysOffPreference', 'Test-RotaAvailability', 'Test-RotaSlotPreference', 'Test-RotaIsolatedWorkDays', 'Test-RotaFairness', 'Test-RotaOfficeLunchProtected', 'Test-RotaTemporaryStaff'
     # Solver
     'Invoke-RotaSolver', 'New-RotaSolverVariables', 'Get-RotaVariableComponents', 'Get-RotaWeekGaps'
     'Get-RotaWeekPatterns', 'Get-RotaAllowedMask', 'Get-RotaPopcountCombinations', 'Get-RotaOfficeCombinations', 'Add-RotaComboCost'

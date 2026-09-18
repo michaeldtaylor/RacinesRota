@@ -360,42 +360,6 @@ function Select-RotaDaysOffFeasiblePatterns {
     $filtered
 }
 
-function Get-RotaProxyScore {
-    <#
-    .SYNOPSIS
-        Fast ranking score used to shortlist candidates before exact evaluation.
-    .DESCRIPTION
-        Covers the two soft terms that dominate and are cheap from masks alone: slot
-        preference and shift underrun. The shortlist is then scored properly by the
-        constraint engine, so this only decides *which* candidates get a full look.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]$Config,
-        [Parameter(Mandatory)][hashtable]$Masks
-    )
-    $defaultPrefW = Get-RotaWeight -Config $Config -Name 'slotPreference' -Default 10
-    $underW = Get-RotaWeight -Config $Config -Name 'shiftUnderrun' -Default 200
-    $score = 0.0
-    foreach ($p in $Config.SolvedStaff) {
-        for ($w = 1; $w -le $Config.meta.cycleWeeks; $w++) {
-            $spec = $p.WeekSpec[$w]
-            $mask = $Masks["$($p.name)|$w"]
-            $n = Get-RotaPopCount -Value $mask
-            if ($n -lt $spec.shifts) { $score += $underW * ($spec.shifts - $n) }
-            foreach ($slot in @('Lunch', 'Dinner')) {
-                $otherRule = if ($slot -eq 'Lunch') { $spec.dinner } else { $spec.lunch }
-                if ($otherRule -ne 'PREF') { continue }
-                $prefW = [double](Get-RotaProperty -Object $spec -Name 'preferenceWeight' -Default $defaultPrefW)
-                for ($d = 0; $d -lt $Config.days.Count; $d++) {
-                    if ($mask -band (1 -shl (Get-RotaSlotIndex -DayIndex $d -Slot $slot))) { $score += $prefW }
-                }
-            }
-        }
-    }
-    $score
-}
-
 function Get-RotaOfficeCombinations {
     <#
     .SYNOPSIS
@@ -521,28 +485,6 @@ function Get-RotaVariableComponents {
         $out.Add([pscustomobject]@{ VarIndexes = [int[]]$idx; Weeks = [int[]]@($weeks) })
     }
     , $out.ToArray()
-}
-
-function Get-RotaVariableProxy {
-    <#
-    .SYNOPSIS
-        Soft cost attributable to one variable's chosen pattern.
-    .DESCRIPTION
-        Decomposable by design, so components can be ranked independently and their scores
-        added when combined. Covers the two soft terms computable from a single variable:
-        shift underrun and slot preference. The whole-schedule terms -- isolated days and
-        fairness -- are left to the exact scoring pass.
-
-        Get-RotaVariableCosts is the bulk form used by the solver; this one is the single-mask
-        version kept for tests and for reading the rule without unpicking the loop.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]$Config,
-        [Parameter(Mandatory)]$Variable,
-        [Parameter(Mandatory)][int]$Mask
-    )
-    (Get-RotaVariableCosts -Config $Config -Variable $Variable -Masks @($Mask))[0]
 }
 
 function Get-RotaVariableCosts {

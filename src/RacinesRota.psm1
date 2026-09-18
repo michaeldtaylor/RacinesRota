@@ -32,7 +32,7 @@ Export-ModuleMember -Function @(
     'Invoke-RotaSolver', 'New-RotaSolverVariables', 'Get-RotaVariableComponents', 'Get-RotaWeekGaps'
     'Get-RotaWeekPatterns', 'Get-RotaAllowedMask', 'Get-RotaPopcountCombinations', 'Get-RotaOfficeCombinations', 'Add-RotaComboCost'
     'Get-RotaOfficeCapacityGroups', 'Select-RotaDaysOffFeasiblePatterns', 'Search-RotaComponent', 'Join-RotaComponents'
-    'Get-RotaProxyScore', 'Get-RotaVariableProxy', 'Test-RotaMasksDaysOff', 'Get-RotaPopCount'
+    'Test-RotaMasksDaysOff', 'Get-RotaPopCount'
     'Initialize-RotaSearchKernel'
     # Report and export
     'Get-RotaCoverageReport', 'Get-RotaTempCoverReport', 'Get-RotaTemporaryExposureReport', 'Get-RotaPersonReport', 'Get-RotaSummary', 'Format-RotaGrid', 'Format-RotaReport'

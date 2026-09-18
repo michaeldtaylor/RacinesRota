@@ -285,3 +285,27 @@ Describe 'Temporary cover is additive only' {
     }
 }
 
+Describe 'Soft rules must be visible to the shortlist, not just the scorer' {
+    # The solver shortlists candidates by a fast proxy and only then scores them exactly. A
+    # soft rule the exact scorer honours but the proxy ignores is invisible in practice: the
+    # schedules that satisfy it are never shortlisted, so they never reach scoring, and
+    # raising its weight changes nothing at all. That is precisely what happened to the
+    # days-off preference -- it was inert at every weight from 20 to 800.
+
+    It 'REGRESSION: the shortlist scorer prices the preference at all' {
+        # Two identical patterns bar the days off; the one that misses the preference must
+        # cost more. If the proxy ignores S8 these come out equal and the ranking is blind.
+        $cfg = New-TestRotaConfig -SolvedShifts 4 -ConsecutiveDaysOff 2 -PersonCycleWeeks 1
+        $cfg.staff[1] | Add-Member -NotePropertyName preferredConsecutiveDaysOff -NotePropertyValue 3.5 -Force
+        $cfg = ConvertTo-RotaNormalisedConfig -Config $cfg
+        $vars = New-RotaSolverVariables -Config $cfg
+        $v = $vars[0]
+        $v.Weeks.Count | Should -Be 2   # spans the cycle, so days off is decidable per pattern
+
+        # Four lunches in a block leaves a long run; four spread out does not.
+        $blocked = New-RotaMaskFromDays -Config $cfg -Days @{ Lundi = 'L'; Mardi = 'L'; Mercredi = 'L'; Jeudi = 'L' }
+        $spread = New-RotaMaskFromDays -Config $cfg -Days @{ Lundi = 'L'; Mercredi = 'L'; Vendredi = 'L'; Dimanche = 'L' }
+        $costs = Get-RotaVariableCosts -Config $cfg -Variable $v -Masks ([int[]]@($blocked, $spread))
+        $costs[1] | Should -BeGreaterThan $costs[0]
+    }
+}

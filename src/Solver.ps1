@@ -585,6 +585,18 @@ function Get-RotaVariableCosts {
         }
     }
 
+    # S8, the days-off preference, is decidable here for a variable spanning the whole cycle
+    # -- one mask, one ring of day loads -- and it has to be, because this is what ranks the
+    # shortlist. A soft rule the exact scorer honours but the shortlist ignores is invisible:
+    # the schedules that satisfy it never reach scoring, and no weight can rescue them.
+    $wantedOff = [double](Get-RotaProperty -Object $Variable.Person -Name 'preferredConsecutiveDaysOff' -Default 0)
+    $owedOff = [math]::Max(
+        [double](Get-RotaProperty -Object $Variable.Person -Name 'consecutiveDaysOff' -Default 0),
+        [double](Get-RotaProperty -Object $Config.rules -Name 'minConsecutiveDaysOffForEveryone' -Default 0))
+    $offW = Get-RotaWeight -Config $Config -Name 'daysOffPreference' -Default 20
+    $scoreDaysOff = ($wantedOff -gt $owedOff) -and ($Variable.Weeks.Count -eq [int]$Config.meta.cycleWeeks)
+    $dayCount = $Config.days.Count
+
     $costs = New-Object double[] $Masks.Count
     for ($i = 0; $i -lt $Masks.Count; $i++) {
         $m = $Masks[$i]
@@ -599,6 +611,22 @@ function Get-RotaVariableCosts {
         if ($penaltyMask) { $c += $prefW * [System.Numerics.BitOperations]::PopCount([uint32]($m -band $penaltyMask)) }
         # A repeating variable pays its cost in every week it covers.
         $costs[$i] = $c * $weeks
+
+        if ($scoreDaysOff) {
+            $loads = New-Object int[] ($dayCount * $weeks)
+            for ($wk = 0; $wk -lt $weeks; $wk++) {
+                for ($d = 0; $d -lt $dayCount; $d++) {
+                    $load = 0
+                    if ($m -band (1 -shl ($d * 2))) { $load++ }
+                    if ($m -band (1 -shl ($d * 2 + 1))) { $load++ }
+                    $loads[$wk * $dayCount + $d] = $load
+                }
+            }
+            foreach ($run in (Get-RotaDaysOffRunByWeek -DayLoads $loads -DaysPerWeek $dayCount)) {
+                if (Test-RotaDaysOffRequirement -Run $run -Required $wantedOff) { continue }
+                $costs[$i] += $offW * [math]::Max(0.5, $wantedOff - $run.Value)
+            }
+        }
     }
     , $costs
 }

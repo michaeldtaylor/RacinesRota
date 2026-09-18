@@ -225,7 +225,7 @@ would buy almost nothing. The wins came from searching less, not from searching 
 Invoke-Pester .\tests -Output Normal
 ```
 
-154 tests, about 25 seconds.
+156 tests, about 25 seconds.
 
 | File | Covers |
 |---|---|

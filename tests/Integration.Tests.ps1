@@ -84,6 +84,15 @@ Describe 'Solving the shipped roster' -Tag 'Slow' {
         $summary.MissingResponsable | Should -Be 0
     }
 
+    It 'REGRESSION: an achievable days-off preference is actually achieved' {
+        # The shortlist scorer was blind to S8, so schedules meeting Beatrice's preferred 3.5
+        # were never shortlisted and never reached the exact scorer. The symptom was that
+        # raising weights.daysOffPreference from 20 to 800 changed nothing whatsoever -- a
+        # soft rule the shortlist cannot see is inert no matter what it is worth.
+        @($script:Result.Violations | Where-Object Id -eq 'S8-DaysOffPreference') |
+            Should -BeNullOrEmpty -Because 'Beatrice''s preferred run is reachable on this roster'
+    }
+
     It 'uses the leaver only where the permanent team cannot reach' {
         # Federica is going. Every shift she holds is a gap in waiting, so the engine must
         # reach for her last -- a handful at most, never a working share of the rota.

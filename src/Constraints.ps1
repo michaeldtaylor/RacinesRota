@@ -320,6 +320,51 @@ function Test-RotaOfficeLunchProtected {
     }
 }
 
+function Test-RotaDaysOffPreference {
+    <#  S8: a longer run of days off that someone would like but is not owed.
+        consecutiveDaysOff is a promise and breaking it makes a schedule wrong (H8/H9).
+        preferredConsecutiveDaysOff is a wish: the engine reaches for it and reports when it
+        could not, but never fails a schedule over it and never lets it crowd out a shift.
+        Keeping the two apart matters -- writing a wish into the hard field means the solver
+        rejects perfectly legal rotas, and the report cannot tell a broken promise from an
+        unmet preference.  #>
+    param([Parameter(Mandatory)]$Schedule)
+    $config = $Schedule.Config
+    $weight = Get-RotaWeight -Config $config -Name 'daysOffPreference' -Default 20
+    $scope = [string](Get-RotaProperty -Object $config.rules -Name 'daysOffScope' -Default 'week')
+
+    foreach ($p in $config.staff) {
+        $wanted = [double](Get-RotaProperty -Object $p -Name 'preferredConsecutiveDaysOff' -Default 0)
+        if ($wanted -le 0) { continue }
+        # Only the part above what they are already owed is a preference.
+        $required = [math]::Max(
+            [double](Get-RotaProperty -Object $p -Name 'consecutiveDaysOff' -Default 0),
+            [double](Get-RotaProperty -Object $config.rules -Name 'minConsecutiveDaysOffForEveryone' -Default 0))
+        if ($wanted -le $required) { continue }
+
+        $loads = Get-RotaCycleDayLoads -Schedule $Schedule -Person $p.name
+
+        if ($scope -eq 'cycle') {
+            $run = Get-RotaLongestDaysOffRun -DayLoads $loads
+            if ($run -lt $wanted) {
+                New-RotaViolation -Id 'S8-DaysOffPreference' -Severity 'Soft' -Person $p.name `
+                    -Message "$($p.name) would prefer $wanted consecutive days off; the longest run across the cycle is $run." `
+                    -Cost ($weight * ($wanted - $run))
+            }
+            continue
+        }
+
+        foreach ($run in (Get-RotaDaysOffRunByWeek -DayLoads $loads -DaysPerWeek $config.days.Count)) {
+            if (Test-RotaDaysOffRequirement -Run $run -Required $wanted) { continue }
+            # Cost the shortfall, so a near miss reads as a near miss.
+            $shortfall = [math]::Max(0.5, $wanted - $run.Value)
+            New-RotaViolation -Id 'S8-DaysOffPreference' -Severity 'Soft' -Person $p.name -Week $run.Week `
+                -Message "$($p.name) week $($run.Week): would prefer $wanted consecutive days off, got $($run.Value) (they are owed $required)." `
+                -Cost ($weight * $shortfall)
+        }
+    }
+}
+
 function Test-RotaFairness {
     <#  S5: spread weekend and dinner load evenly across the solved staff.
         Cost is the spread (max - min) rather than a variance, so it reads plainly in
@@ -380,6 +425,7 @@ function Get-RotaConstraints {
         [pscustomobject]@{ Id = 'S5-Fairness'; Severity = 'Soft'; Test = ${function:Test-RotaFairness} }
         [pscustomobject]@{ Id = 'S6-AdminLunch'; Severity = 'Soft'; Test = ${function:Test-RotaOfficeLunchProtected} }
         [pscustomobject]@{ Id = 'S7-TemporaryCover'; Severity = 'Soft'; Test = ${function:Test-RotaTemporaryStaff} }
+        [pscustomobject]@{ Id = 'S8-DaysOffPreference'; Severity = 'Soft'; Test = ${function:Test-RotaDaysOffPreference} }
     )
 }
 

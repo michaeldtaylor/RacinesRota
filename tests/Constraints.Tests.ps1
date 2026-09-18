@@ -263,3 +263,98 @@ Describe 'The constraint registry' {
             Should -Be ($violations | Measure-Object -Property Cost -Sum).Sum
     }
 }
+
+Describe 'S8 days-off preference' {
+    # consecutiveDaysOff is a promise; preferredConsecutiveDaysOff is a wish. The engine
+    # reaches for the wish and reports when it misses, but never fails a schedule over it.
+
+    BeforeAll {
+        function New-PreferenceConfig {
+            param([double]$Owed = 2, [double]$Wanted = 3.5, [int]$Shifts = 4, [int]$Required = 1)
+            $cfg = New-TestRotaConfig -ConsecutiveDaysOff $Owed -SolvedShifts $Shifts -RequiredPerService $Required
+            $cfg.staff[1] | Add-Member -NotePropertyName preferredConsecutiveDaysOff -NotePropertyValue $Wanted -Force
+            ConvertTo-RotaNormalisedConfig -Config $cfg
+        }
+    }
+
+    It 'says nothing when nobody has expressed a preference' {
+        $schedule = New-ScheduleWithSolved -Week1Mask (Get-WeekdayLunchMask -Config (New-TestRotaConfig))
+        @(Test-RotaDaysOffPreference -Schedule $schedule) | Should -BeNullOrEmpty
+    }
+
+    It 'says nothing when the preferred run is achieved' {
+        # Lundi to Mercredi lunches leaves Jeudi through Dimanche off -- four whole days.
+        $cfg = New-PreferenceConfig -Owed 2 -Wanted 3.5 -Shifts 3
+        $mask = New-RotaMaskFromDays -Config $cfg -Days @{ Lundi = 'L'; Mardi = 'L'; Mercredi = 'L' }
+        $schedule = New-ScheduleWithSolved -Config $cfg -Week1Mask $mask
+        @(Test-RotaDaysOffPreference -Schedule $schedule) | Should -BeNullOrEmpty
+    }
+
+    It 'reports a missed preference as SOFT, never hard' {
+        # Monday to Friday lunches leaves only Samedi and Dimanche: meets the 2 they are
+        # owed, misses the 3.5 they would like.
+        $cfg = New-PreferenceConfig -Owed 2 -Wanted 3.5 -Shifts 5
+        $schedule = New-ScheduleWithSolved -Config $cfg -Week1Mask (Get-WeekdayLunchMask -Config $cfg)
+
+        $v = @(Test-RotaDaysOffPreference -Schedule $schedule)
+        $v.Count | Should -BeGreaterThan 0
+        foreach ($x in $v) {
+            $x.Severity | Should -Be 'Soft'
+            $x.Id | Should -Be 'S8-DaysOffPreference'
+            $x.Message | Should -Match 'would prefer'
+        }
+        # ...and the person it applies to breaks no hard rule, which is the whole point.
+        # (Boss is fixed and works every day in this fixture, so H9 always fires for him.)
+        $hard = @(Test-RotaConsecutiveDaysOff -Schedule $schedule | Where-Object Person -eq 'Solved')
+        $hard | Should -BeNullOrEmpty
+    }
+
+    It 'costs the shortfall, so a near miss reads as a near miss' {
+        $near = New-PreferenceConfig -Owed 2 -Wanted 3 -Shifts 5
+        $far = New-PreferenceConfig -Owed 2 -Wanted 5 -Shifts 5
+        $nearCost = (@(Test-RotaDaysOffPreference -Schedule (New-ScheduleWithSolved -Config $near -Week1Mask (Get-WeekdayLunchMask -Config $near))) | Measure-Object Cost -Sum).Sum
+        $farCost = (@(Test-RotaDaysOffPreference -Schedule (New-ScheduleWithSolved -Config $far -Week1Mask (Get-WeekdayLunchMask -Config $far))) | Measure-Object Cost -Sum).Sum
+        $farCost | Should -BeGreaterThan $nearCost
+    }
+
+    It 'ignores a preference that is not above what the person is already owed' {
+        $cfg = New-PreferenceConfig -Owed 3.5 -Wanted 3.5 -Shifts 4
+        $schedule = New-ScheduleWithSolved -Config $cfg -Week1Mask (Get-WeekdayLunchMask -Config $cfg)
+        @(Test-RotaDaysOffPreference -Schedule $schedule) | Should -BeNullOrEmpty
+    }
+
+    It 'rejects such a preference in config, rather than leaving it dead' {
+        $cfg = New-PreferenceConfig -Owed 3.5 -Wanted 3.5
+        @(Test-RotaConfig -Config $cfg) -join ' ' | Should -BeLike '*not above what they are already owed*'
+    }
+
+    It 'never changes which schedules are legal' {
+        # The real guarantee: bolting a preference onto a roster must not alter feasibility.
+        # Solve the same roster twice, once with the preference and once without, and the
+        # hard outcome must be identical -- only the soft report differs.
+        $rules = @{ minConsecutiveDaysOffForEveryone = 0 }
+        $plain = New-TestRotaConfig -RequiredPerService 2 -SolvedShifts 10 -Rules $rules
+
+        $withPref = New-TestRotaConfig -RequiredPerService 2 -SolvedShifts 10 -Rules $rules
+        $withPref.staff[1] | Add-Member -NotePropertyName preferredConsecutiveDaysOff -NotePropertyValue 5 -Force
+        $withPref = ConvertTo-RotaNormalisedConfig -Config $withPref
+
+        $a = Invoke-RotaSolver -Config $plain -ShortlistSize 20
+        $b = Invoke-RotaSolver -Config $withPref -ShortlistSize 20
+
+        $hardA = @($a.Violations | Where-Object Severity -eq 'Hard')
+        $hardB = @($b.Violations | Where-Object Severity -eq 'Hard')
+        $hardB.Count | Should -Be $hardA.Count
+
+        # Same shifts placed, so the preference cost nobody any work.
+        for ($w = 1; $w -le 2; $w++) {
+            $shiftsA = Get-RotaMaskPopCount -Mask $a.Schedule.Masks["Solved|$w"]
+            $shiftsB = Get-RotaMaskPopCount -Mask $b.Schedule.Masks["Solved|$w"]
+            $shiftsB | Should -Be $shiftsA
+        }
+
+        # And the preference is genuinely unreachable here, so it really was exercised.
+        @($b.Violations | Where-Object Id -eq 'S8-DaysOffPreference').Count | Should -BeGreaterThan 0
+        @($a.Violations | Where-Object Id -eq 'S8-DaysOffPreference') | Should -BeNullOrEmpty
+    }
+}

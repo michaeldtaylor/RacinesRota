@@ -27,7 +27,7 @@ Export-ModuleMember -Function @(
     'Get-RotaConstraints', 'Test-RotaSchedule', 'Get-RotaScore', 'New-RotaViolation', 'Get-RotaWeight'
     'Test-RotaCoverage', 'Test-RotaResponsable', 'Test-RotaFixedAssignments', 'Test-RotaShiftCount'
     'Test-RotaDoubles', 'Test-RotaSlotEligibility', 'Test-RotaWeekendAvailability'
-    'Test-RotaConsecutiveDaysOff', 'Test-RotaSlotPreference', 'Test-RotaIsolatedWorkDays', 'Test-RotaFairness', 'Test-RotaOfficeLunchProtected', 'Test-RotaTemporaryStaff'
+    'Test-RotaConsecutiveDaysOff', 'Test-RotaDaysOffPreference', 'Test-RotaSlotPreference', 'Test-RotaIsolatedWorkDays', 'Test-RotaFairness', 'Test-RotaOfficeLunchProtected', 'Test-RotaTemporaryStaff'
     # Solver
     'Invoke-RotaSolver', 'New-RotaSolverVariables', 'Get-RotaVariableComponents', 'Get-RotaWeekGaps'
     'Get-RotaWeekPatterns', 'Get-RotaAllowedMask', 'Get-RotaPopcountCombinations', 'Get-RotaOfficeCombinations', 'Add-RotaComboCost'

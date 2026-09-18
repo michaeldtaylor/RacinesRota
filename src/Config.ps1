@@ -199,6 +199,18 @@ function Test-RotaConfig {
 
         if ($p.mode -notin @('fixed', 'solved')) { $problems.Add("${name}: mode must be 'fixed' or 'solved'; got '$($p.mode)'.") }
 
+        # A preference below what someone is already owed is dead config, and reads as though
+        # it were doing something.
+        $wanted = [double](Get-RotaProperty -Object $p -Name 'preferredConsecutiveDaysOff' -Default 0)
+        if ($wanted -gt 0) {
+            $owed = [math]::Max(
+                [double](Get-RotaProperty -Object $p -Name 'consecutiveDaysOff' -Default 0),
+                [double](Get-RotaProperty -Object $Config.rules -Name 'minConsecutiveDaysOffForEveryone' -Default 0))
+            if ($wanted -le $owed) {
+                $problems.Add("${name}: preferredConsecutiveDaysOff ($wanted) is not above what they are already owed ($owed), so it can never apply. Raise it, or remove it.")
+            }
+        }
+
         # The repeat mode and the week specs have to tell the same story. These checks exist
         # because two people once carried the same cycleWeeks for opposite reasons and the
         # file gave a reader no way to tell which was which.

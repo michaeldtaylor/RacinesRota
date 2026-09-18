@@ -79,9 +79,16 @@ Slot eligibility vocabulary, taken from the original spreadsheet:
 | S5 | Weekend and dinner load spread evenly |
 | S6 | Admin lunches genuinely free, not load-bearing |
 | S7 | Temporary cover used as little as possible |
+| S8 | A longer run of days off that someone would like but is not owed |
 
 There is no S4 — staffing levels are H1's job, in both directions, and the number was left
 free rather than renumbering the rest.
+
+**`consecutiveDaysOff` is a promise; `preferredConsecutiveDaysOff` is a wish.** Breaking the
+first makes a schedule wrong (H8/H9). Missing the second is reported and costed (S8) and
+nothing more. Keeping them apart matters: a wish written into the hard field makes the solver
+reject perfectly legal rotas, and the report can no longer tell a broken promise from an
+unmet preference. Barbara is owed 2 in a row; Beatrice is owed 2 and would like 3.5.
 
 Adding a rule means writing one function and adding one line to the registry in
 `src\Constraints.ps1`. Nothing else changes.
@@ -217,7 +224,7 @@ would buy almost nothing. The wins came from searching less, not from searching 
 Invoke-Pester .\tests -Output Normal
 ```
 
-129 tests, about 20 seconds.
+136 tests, about 20 seconds.
 
 | File | Covers |
 |---|---|
@@ -284,9 +291,9 @@ six. **The contract stands as written**; the surplus is reported rather than hid
 
 Note that hiring does not resolve this. A new person adds contracted hours to *both* weeks,
 and in week 2 they would sit idle alongside Barbara. What a hire *would* cover is the hole
-Federica leaves behind: when she goes, **week 1 Mercredi and Jeudi dinners drop to two of
-three**. Everyone else is already at their ceiling, and Barbara cannot take them because her
-week 1 is `dinner: NO`.
+Federica leaves behind: when she goes, **week 1 Jeudi dinner drops to two of three**. Everyone
+else is at their ceiling by then, and Barbara cannot take it because her week 1 is
+`dinner: NO`.
 
 ---
 
@@ -307,6 +314,8 @@ Everything lives in `config\roster.json`.
 | `solver.timeBudgetSeconds` | How long to search, per pass — and there are two passes |
 | `solver.maxCostDrop` | How far above the cheapest distribution to keep looking (a cost, not a count) |
 | `staff[].repeat` | `weekly`, `cycle` or `none` — see above |
+| `staff[].consecutiveDaysOff` | The run of days off this person is **owed** (hard) |
+| `staff[].preferredConsecutiveDaysOff` | A longer run they would **like** (soft, S8). Must be above what they are owed, or it is rejected as dead config |
 | `staff[].temporary` | Cover only — never used to solve |
 | `staff[].weeks.N.maxShifts` | Ceiling above the target, for cover staff |
 

@@ -36,7 +36,8 @@
     "weekendFairness": 3,
     "dinnerFairness": 3,
     "adminLunchUnprotected": 25,
-    "temporaryShift": 300
+    "temporaryShift": 300,
+    "daysOffPreference": 20
   },
 
   "staff": [
@@ -121,7 +122,7 @@
       "repeat": "cycle",
       "cycleWeeks": 2,
       "_repeatNote": "Her two weeks are genuinely different jobs -- five lunches, no dinners, no weekend in week 1; nine shifts with doubles and weekends in week 2 -- so the pair repeats as a fortnight.",
-      "consecutiveDaysOff": 3.5,
+      "consecutiveDaysOff": 2,
       "weeks": {
         "1": { "doubles": false, "shifts": 5, "weekend": false, "lunch": "OBLIG", "dinner": "NO" },
         "2": { "doubles": true, "shifts": 9, "weekend": true, "lunch": "ANY", "dinner": "ANY" }
@@ -151,6 +152,8 @@
       "colour": "#F8CBAD",
       "repeat": "weekly",
       "consecutiveDaysOff": 2,
+      "preferredConsecutiveDaysOff": 3.5,
+      "_daysOffNote": "Owed two in a row; would like 3.5. The preference is scored (S8) and reported when it is missed, but never fails a schedule and never costs anyone a shift -- put a wish in consecutiveDaysOff and the solver starts rejecting legal rotas.",
       "weeks": {
         "1": { "doubles": true, "shifts": 7, "weekend": true, "lunch": "ANY", "dinner": "ANY" },
         "2": { "doubles": true, "shifts": 7, "weekend": true, "lunch": "ANY", "dinner": "ANY" }

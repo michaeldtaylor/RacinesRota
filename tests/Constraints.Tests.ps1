@@ -451,3 +451,55 @@ Describe 'A week can weigh its own slot preference' {
         $heavyCost | Should -Be ($plainCost * 12)      # 120 against the default 10
     }
 }
+
+Describe 'The solver and the rules must agree about responsables' {
+    # The search filters candidates by H2 before shortlisting, because once a responsable's
+    # week can be released it can take the only manager off a service. That check has to
+    # obey the same switch the constraint engine does, or the search would reject schedules
+    # the rules allow and the two halves would disagree about what the rules are.
+
+    It 'requires one per service when the rule is on' {
+        $cfg = New-TestRotaConfig -Rules @{ requireResponsablePerService = $true }
+        $masks = @{ 'Solved|1' = 0; 'Solved|2' = 0; 'Boss|1' = 0; 'Boss|2' = 0 }
+        Test-RotaMasksResponsable -Config $cfg -Masks $masks | Should -BeFalse
+    }
+
+    It 'requires nothing when the rule is off' {
+        $cfg = New-TestRotaConfig -Rules @{ requireResponsablePerService = $false }
+        $masks = @{ 'Solved|1' = 0; 'Solved|2' = 0; 'Boss|1' = 0; 'Boss|2' = 0 }
+        Test-RotaMasksResponsable -Config $cfg -Masks $masks | Should -BeTrue
+    }
+
+    It 'agrees with the constraint engine either way' {
+        foreach ($on in $true, $false) {
+            $cfg = New-TestRotaConfig -Rules @{ requireResponsablePerService = $on }
+            $schedule = New-RotaSchedule -Config $cfg          # nobody placed at all
+            $masks = @{}
+            foreach ($p in $cfg.staff) { for ($w = 1; $w -le 2; $w++) { $masks["$($p.name)|$w"] = 0 } }
+            $engineHappy = @(Test-RotaResponsable -Schedule $schedule).Count -eq 0
+            $searchHappy = Test-RotaMasksResponsable -Config $cfg -Masks $masks
+            $searchHappy | Should -Be $engineHappy -Because "rule on = $on"
+        }
+    }
+}
+
+Describe 'officeLunch.count' {
+    It 'accepts the one value that is actually supported' {
+        $cfg = New-TestRotaConfig
+        $cfg.staff[0] | Add-Member -NotePropertyName officeLunch -NotePropertyValue ([pscustomobject]@{
+                count = 1; slot = 'Lunch'; candidateDays = @('Mercredi')
+            }) -Force
+        $cfg = ConvertTo-RotaNormalisedConfig -Config $cfg
+        @(Test-RotaConfig -Config $cfg) -join ' ' | Should -Not -BeLike '*officeLunch.count*'
+    }
+
+    It 'rejects a count it would silently ignore' {
+        # It used to accept 2 and quietly give one, which is the worst of both.
+        $cfg = New-TestRotaConfig
+        $cfg.staff[0] | Add-Member -NotePropertyName officeLunch -NotePropertyValue ([pscustomobject]@{
+                count = 2; slot = 'Lunch'; candidateDays = @('Mercredi', 'Jeudi')
+            }) -Force
+        $cfg = ConvertTo-RotaNormalisedConfig -Config $cfg
+        @(Test-RotaConfig -Config $cfg) -join ' ' | Should -BeLike '*only one admin lunch per week is supported*'
+    }
+}

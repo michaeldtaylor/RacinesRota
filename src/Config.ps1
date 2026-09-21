@@ -349,6 +349,17 @@ function Test-RotaConfig {
 
         if ($p.mode -notin @('fixed', 'solved')) { $problems.Add("${name}: mode must be 'fixed' or 'solved'; got '$($p.mode)'.") }
 
+        # officeLunch.count reads as though it did something. It does not: the search
+        # assigns exactly one admin lunch per person per week. Saying so beats letting
+        # somebody write 2 and wonder why they only ever get one.
+        $office = Get-RotaProperty -Object $p -Name 'officeLunch'
+        if ($null -ne $office) {
+            $count = Get-RotaProperty -Object $office -Name 'count'
+            if ($null -ne $count -and [int]$count -ne 1) {
+                $problems.Add("${name}: officeLunch.count is $count, but only one admin lunch per week is supported. Remove the key, or set it to 1.")
+            }
+        }
+
         foreach ($w in $p.FixedByWeek.Keys) {
             if ($w -lt 1 -or $w -gt $Config.meta.cycleWeeks) {
                 $problems.Add("${name}: fixedByWeek names week $w, but the rota is $($Config.meta.cycleWeeks) weeks long.")

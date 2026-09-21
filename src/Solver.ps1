@@ -397,7 +397,11 @@ function Test-RotaMasksResponsable {
         [Parameter(Mandatory)]$Config,
         [Parameter(Mandatory)][hashtable]$Masks
     )
-    $cycleWeeks = [int]$Config.meta.cycleWeeks
+    # Honour the same switch H2 does. Without this the search would filter out schedules the
+    # constraint engine is perfectly happy with, and the two halves would disagree about what
+    # the rules are -- which is the one thing they must never do.
+    if (-not (Get-RotaProperty -Object $Config.rules -Name 'requireResponsablePerService' -Default $true)) { return $true }
+
     foreach ($s in $Config.Services) {
         if (-not $s.Open) { continue }
         $bit = 1 -shl $s.SlotIndex

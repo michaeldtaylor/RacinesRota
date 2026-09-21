@@ -46,7 +46,7 @@ If you add a function that returns a collection, wrap it the same way — and ad
 
 ## Other things worth knowing
 
-**Run the tests before and after.** `Invoke-Pester .\tests -Output Normal` — 171 tests, about
+**Run the tests before and after.** `Invoke-Pester .\tests -Output Normal` — 176 tests, about
 4 minutes. Add `-ExcludeTagFilter Slow` to skip the ones that solve the real roster.
 
 **Solve the real roster after touching the solver.** The synthetic test fixture solves in a

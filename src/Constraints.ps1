@@ -479,27 +479,48 @@ function Test-RotaFairness {
 function Get-RotaConstraints {
     <#
     .SYNOPSIS
-        The constraint registry. Order is report order.
+        The constraint registry: one evaluator per subject, and what each can report.
+    .DESCRIPTION
+        Order is report order.
+
+        An evaluator is not the same thing as a violation. Shift counts are one pass over the
+        roster that can report three different faults -- over the ceiling, under the floor,
+        under the target -- and days off reports under a different id depending on whether
+        the person's rota is solved or fixed. Listing only one id per evaluator made the
+        registry look like the whole rulebook when it was not: H9 and H11 are raised by the
+        engine and appear in reports, yet neither was named here.
+
+        Emits therefore lists every id an evaluator can produce, and a test holds it to the
+        ids actually present in this file. The prefix carries the severity: H is a rule a
+        schedule must not break, S is a preference that is scored and reported.
+    .OUTPUTS
+        One object per evaluator, with Name, Emits and Test.
     #>
     [CmdletBinding()]
     param()
     @(
-        [pscustomobject]@{ Id = 'H1-Coverage'; Severity = 'Hard'; Test = ${function:Test-RotaCoverage} }
-        [pscustomobject]@{ Id = 'H2-Responsable'; Severity = 'Hard'; Test = ${function:Test-RotaResponsable} }
-        [pscustomobject]@{ Id = 'H3-Fixed'; Severity = 'Hard'; Test = ${function:Test-RotaFixedAssignments} }
-        [pscustomobject]@{ Id = 'H4-ShiftCount'; Severity = 'Hard'; Test = ${function:Test-RotaShiftCount} }
-        [pscustomobject]@{ Id = 'H5-Doubles'; Severity = 'Hard'; Test = ${function:Test-RotaDoubles} }
-        [pscustomobject]@{ Id = 'H6-Eligibility'; Severity = 'Hard'; Test = ${function:Test-RotaSlotEligibility} }
-        [pscustomobject]@{ Id = 'H7-Weekend'; Severity = 'Hard'; Test = ${function:Test-RotaWeekendAvailability} }
-        [pscustomobject]@{ Id = 'H8-DaysOff'; Severity = 'Hard'; Test = ${function:Test-RotaConsecutiveDaysOff} }
-        [pscustomobject]@{ Id = 'H10-Availability'; Severity = 'Hard'; Test = ${function:Test-RotaAvailability} }
-        [pscustomobject]@{ Id = 'S1-SlotPreference'; Severity = 'Soft'; Test = ${function:Test-RotaSlotPreference} }
-        [pscustomobject]@{ Id = 'S2-IsolatedDay'; Severity = 'Soft'; Test = ${function:Test-RotaIsolatedWorkDays} }
-        [pscustomobject]@{ Id = 'S5-Fairness'; Severity = 'Soft'; Test = ${function:Test-RotaFairness} }
-        [pscustomobject]@{ Id = 'S6-AdminLunch'; Severity = 'Soft'; Test = ${function:Test-RotaOfficeLunchProtected} }
-        [pscustomobject]@{ Id = 'S7-TemporaryCover'; Severity = 'Soft'; Test = ${function:Test-RotaTemporaryStaff} }
-        [pscustomobject]@{ Id = 'S8-DaysOffPreference'; Severity = 'Soft'; Test = ${function:Test-RotaDaysOffPreference} }
-        [pscustomobject]@{ Id = 'S9-ReleasedShift'; Severity = 'Soft'; Test = ${function:Test-RotaReleasedShifts} }
+        [pscustomobject]@{ Name = 'Coverage'; Emits = @('H1-Coverage'); Test = ${function:Test-RotaCoverage} }
+        [pscustomobject]@{ Name = 'Responsable on duty'; Emits = @('H2-Responsable'); Test = ${function:Test-RotaResponsable} }
+        [pscustomobject]@{ Name = 'Fixed rows unchanged'; Emits = @('H3-Fixed'); Test = ${function:Test-RotaFixedAssignments} }
+        [pscustomobject]@{ Name = 'Shift counts'
+            Emits = @('H4-ShiftCeiling', 'H11-ShiftFloor', 'S3-ShiftUnderrun')
+            Test = ${function:Test-RotaShiftCount} }
+        [pscustomobject]@{ Name = 'Doubles'; Emits = @('H5-Doubles'); Test = ${function:Test-RotaDoubles} }
+        [pscustomobject]@{ Name = 'Slot eligibility'; Emits = @('H6-Eligibility'); Test = ${function:Test-RotaSlotEligibility} }
+        [pscustomobject]@{ Name = 'Weekend availability'; Emits = @('H7-Weekend'); Test = ${function:Test-RotaWeekendAvailability} }
+        [pscustomobject]@{ Name = 'Consecutive days off'
+            Emits = @('H8-DaysOff', 'H9-DaysOffFloor')
+            Test = ${function:Test-RotaConsecutiveDaysOff} }
+        [pscustomobject]@{ Name = 'Per-day availability'; Emits = @('H10-Availability'); Test = ${function:Test-RotaAvailability} }
+        [pscustomobject]@{ Name = 'Slot preference'; Emits = @('S1-SlotPreference'); Test = ${function:Test-RotaSlotPreference} }
+        [pscustomobject]@{ Name = 'Isolated working days'; Emits = @('S2-IsolatedDay'); Test = ${function:Test-RotaIsolatedWorkDays} }
+        [pscustomobject]@{ Name = 'Fairness'
+            Emits = @('S5-Fairness-weekend', 'S5-Fairness-dinner')
+            Test = ${function:Test-RotaFairness} }
+        [pscustomobject]@{ Name = 'Admin lunch protected'; Emits = @('S6-AdminLunchUnprotected'); Test = ${function:Test-RotaOfficeLunchProtected} }
+        [pscustomobject]@{ Name = 'Temporary cover'; Emits = @('S7-TemporaryCover'); Test = ${function:Test-RotaTemporaryStaff} }
+        [pscustomobject]@{ Name = 'Days-off preference'; Emits = @('S8-DaysOffPreference'); Test = ${function:Test-RotaDaysOffPreference} }
+        [pscustomobject]@{ Name = 'Released fixed shifts'; Emits = @('S9-ReleasedShift'); Test = ${function:Test-RotaReleasedShifts} }
     )
 }
 

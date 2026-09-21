@@ -71,6 +71,13 @@ Slot eligibility vocabulary, taken from the original spreadsheet:
 | H10 | Nobody is rostered on a service they are not available for (`staff[].available`) |
 | H11 | Nobody works fewer than their declared floor (`minShifts`) |
 
+An evaluator is not the same thing as a violation. One pass over shift counts can report
+three different faults — over the ceiling (H4), under the floor (H11), under the target
+(S3) — and days off reports under H8 or H9 depending on whether the person's rota is solved
+or fixed. The registry in `src\Constraints.ps1` therefore lists each evaluator with every id
+it can raise, and a test holds that list to the ids actually present in the file. H9 and H11
+went unlisted for a while precisely because one evaluator was assumed to mean one rule.
+
 **Soft** — scored and traded off, never silently dropped.
 
 | | Preference |
@@ -107,7 +114,7 @@ reject perfectly legal rotas, and the report can no longer tell a broken promise
 unmet preference. Barbara is owed 2 in a row; Beatrice is owed 2 and would like 3.5.
 
 Adding a rule means writing one function and adding one line to the registry in
-`src\Constraints.ps1`. Nothing else changes.
+`src\Constraints.ps1`, naming the ids it can raise. Nothing else changes.
 
 ---
 
@@ -246,7 +253,7 @@ would buy almost nothing. The wins came from searching less, not from searching 
 Invoke-Pester .\tests -Output Normal
 ```
 
-176 tests, about 4 minutes (the workbook round trip solves the real roster twice).
+181 tests, about 4 minutes (the workbook round trip solves the real roster twice).
 
 | File | Covers |
 |---|---|

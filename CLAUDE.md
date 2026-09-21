@@ -46,7 +46,7 @@ If you add a function that returns a collection, wrap it the same way — and ad
 
 ## Other things worth knowing
 
-**Run the tests before and after.** `Invoke-Pester .\tests -Output Normal` — 176 tests, about
+**Run the tests before and after.** `Invoke-Pester .\tests -Output Normal` — 181 tests, about
 4 minutes. Add `-ExcludeTagFilter Slow` to skip the ones that solve the real roster.
 
 **Solve the real roster after touching the solver.** The synthetic test fixture solves in a
@@ -59,7 +59,9 @@ yourself too — a passing suite with a 490-second solve has happened.
 marshalled flat arrays. Prefer driving `Invoke-RotaSolver`.
 
 **Rules live in one place.** Adding a constraint means writing one evaluator and adding one
-line to the registry in `src\Constraints.ps1`. The C# kernel in `src\SearchKernel.ps1` knows
+line to the registry in `src\Constraints.ps1`, listing every violation id it can raise --
+one evaluator often reports several, and a test fails if the registry and the source
+disagree. The C# kernel in `src\SearchKernel.ps1` knows
 nothing about rota rules and must stay that way — it takes pre-filtered domains and a capacity
 model, and `Constraints.ps1` scores the winner.
 

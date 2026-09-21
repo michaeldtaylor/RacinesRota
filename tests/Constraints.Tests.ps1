@@ -503,3 +503,59 @@ Describe 'officeLunch.count' {
         @(Test-RotaConfig -Config $cfg) -join ' ' | Should -BeLike '*only one admin lunch per week is supported*'
     }
 }
+
+Describe 'The registry says what the engine actually reports' {
+    # H9 and H11 were raised by the engine, printed in reports, and named in no registry
+    # entry, because one evaluator can report several different faults and the registry
+    # listed only one id each. A reader auditing the rules would have missed two of them.
+    # These tests hold the registry to the ids that exist in the source.
+
+    BeforeAll {
+        $script:Constraints = Get-RotaConstraints
+        $script:Declared = @($script:Constraints | ForEach-Object Emits | Sort-Object -Unique)
+
+        # Every id the source can raise: the literals, plus the two that are chosen at
+        # runtime and so cannot be found by looking for -Id '...'.
+        $source = Get-Content (Join-Path (Get-RotaRepoRoot) 'src\Constraints.ps1') -Raw
+        $literals = @([regex]::Matches($source, "-Id\s+'([A-Za-z0-9-]+)'") | ForEach-Object { $_.Groups[1].Value })
+        $computed = @([regex]::Matches($source, "'((?:H|S)\d+-[A-Za-z]+)'") | ForEach-Object { $_.Groups[1].Value })
+        $script:Raised = @($literals + $computed | Sort-Object -Unique)
+        $script:Source = $source
+    }
+
+    It 'declares every id the source can raise' {
+        foreach ($id in $script:Raised) {
+            # S5 interpolates its suffix, so match on the stem.
+            $covered = $script:Declared | Where-Object { $_ -eq $id -or $_ -like "$id-*" }
+            @($covered) | Should -Not -BeNullOrEmpty -Because "$id is raised somewhere but no registry entry declares it"
+        }
+    }
+
+    It 'declares nothing the source cannot raise' {
+        foreach ($id in $script:Declared) {
+            # Match on the stem against the file text, because an id whose suffix is
+            # interpolated -- "S5-Fairness-$name" -- never appears in full as a literal.
+            $stem = ($id -split '-')[0..1] -join '-'
+            $script:Source | Should -Match ([regex]::Escape($stem)) -Because "$id is declared but nothing in the source raises it"
+        }
+    }
+
+    It 'names H9 and H11 specifically' {
+        # The two that went missing. Named outright so the omission cannot recur quietly.
+        $script:Declared | Should -Contain 'H9-DaysOffFloor'
+        $script:Declared | Should -Contain 'H11-ShiftFloor'
+    }
+
+    It 'gives every evaluator a name and something to report' {
+        foreach ($c in $script:Constraints) {
+            $c.Name | Should -Not -BeNullOrEmpty
+            @($c.Emits).Count | Should -BeGreaterThan 0 -Because "$($c.Name) must say what it reports"
+            $c.Test | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    It 'has no duplicate ids across evaluators' {
+        $all = @($script:Constraints | ForEach-Object Emits)
+        @($all).Count | Should -Be (@($all | Sort-Object -Unique)).Count
+    }
+}

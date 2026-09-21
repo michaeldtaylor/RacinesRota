@@ -17,9 +17,9 @@
 
 Set-StrictMode -Version Latest
 
-$script:RotaCriteriaColumns = @('Name', 'Week', 'Doubles', 'Shifts', 'MaxShifts', 'Weekend', 'Lunch', 'Dinner', 'PreferenceWeight')
+$script:RotaCriteriaColumns = @('Name', 'Week', 'Doubles', 'Shifts', 'MinShifts', 'MaxShifts', 'Weekend', 'Lunch', 'Dinner', 'PreferenceWeight')
 $script:RotaStaffColumns = @('Name', 'Contract', 'Mode', 'Responsable', 'Temporary', 'Repeat', 'CycleWeeks',
-    'ConsecutiveDaysOff', 'PreferredDaysOff', 'Available', 'Colour', 'DinnerStart', 'OfficeLunchDays')
+    'ConsecutiveDaysOff', 'PreferredDaysOff', 'Available', 'Flexible', 'Colour', 'DinnerStart', 'OfficeLunchDays')
 
 function ConvertTo-RotaBool {
     <#  Excel round-trips booleans as TRUE/FALSE/1/0/yes depending on how they were typed.  #>
@@ -120,6 +120,8 @@ function Get-RotaStaffRows {
             PreferredDaysOff   = Get-RotaProperty -Object $p -Name 'preferredConsecutiveDaysOff' -Default ''
             # "Lundi:Lunch+Dinner; Mardi:Lunch" -- empty means no restriction, which is not
             # the same as available for nothing.
+            # "2:3" -- week 2 may give up to 3 shifts.
+            Flexible           = (@($p.FlexibleWeeks.Keys | Sort-Object | ForEach-Object { "${_}:$($p.FlexibleWeeks[$_].MaxDrop)" }) -join '; ')
             Available          = $(if ($null -eq $p.AvailableMask) { '' } else {
                     (@($Config.days | Where-Object { $p.AvailableByDay.ContainsKey($_) } |
                         ForEach-Object { "${_}:" + (@($p.AvailableByDay[$_]) -join '+') }) -join '; ')
@@ -145,6 +147,7 @@ function Get-RotaCriteriaRows {
                 Week      = $prop.Name
                 Doubles   = [bool]$spec.doubles
                 Shifts    = $spec.shifts
+                MinShifts = Get-RotaProperty -Object $spec -Name 'minShifts' -Default ''
                 MaxShifts = Get-RotaProperty -Object $spec -Name 'maxShifts' -Default ''
                 Weekend   = [bool]$spec.weekend
                 Lunch     = $spec.lunch
@@ -278,6 +281,7 @@ function Import-RotaConfigExcel {
             lunch   = "$($row.Lunch)".Trim().ToUpper()
             dinner  = "$($row.Dinner)".Trim().ToUpper()
         }
+        if (-not [string]::IsNullOrWhiteSpace($row.MinShifts)) { $spec['minShifts'] = [int]$row.MinShifts }
         if (-not [string]::IsNullOrWhiteSpace($row.MaxShifts)) { $spec['maxShifts'] = [int]$row.MaxShifts }
         if (-not [string]::IsNullOrWhiteSpace($row.PreferenceWeight)) { $spec['preferenceWeight'] = [double]$row.PreferenceWeight }
         $byPerson[$row.Name]["$($row.Week)"] = [pscustomobject]$spec
@@ -311,6 +315,15 @@ function Import-RotaConfigExcel {
         if (-not [string]::IsNullOrWhiteSpace($row.Colour)) { $person['colour'] = "$($row.Colour)" }
         if (-not [string]::IsNullOrWhiteSpace($row.Repeat)) { $person['repeat'] = "$($row.Repeat)".Trim().ToLowerInvariant() }
         if (-not [string]::IsNullOrWhiteSpace($row.PreferredDaysOff)) { $person['preferredConsecutiveDaysOff'] = [double]$row.PreferredDaysOff }
+        if (-not [string]::IsNullOrWhiteSpace($row.Flexible)) {
+            $flex = @{}
+            foreach ($entry in ("$($row.Flexible)" -split ';')) {
+                $bits = $entry -split ':'
+                if ($bits.Count -lt 2) { continue }
+                $flex[$bits[0].Trim()] = @{ maxDrop = [int]$bits[1] }
+            }
+            if ($flex.Count -gt 0) { $person['flexible'] = $flex }
+        }
         if (-not [string]::IsNullOrWhiteSpace($row.Available)) {
             $avail = @{}
             foreach ($entry in ("$($row.Available)" -split ';')) {

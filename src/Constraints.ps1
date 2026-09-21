@@ -77,6 +77,16 @@ function Test-RotaFixedAssignments {
                 }
             }
             $actual = $Schedule.Masks["$($p.name)|$w"]
+            if ($p.FlexibleWeeks.ContainsKey($w)) {
+                # This week was released, so working less of the pattern is allowed. Working
+                # anything outside it is not: give means give back, not swap.
+                $outside = $actual -band -bnot $expected
+                if ($outside -ne 0) {
+                    New-RotaViolation -Id 'H3-Fixed' -Severity 'Hard' -Person $p.name -Week $w `
+                        -Message "$($p.name) week ${w}: rostered outside their fixed pattern, which even a released week may not do." -Cost 100000
+                }
+                continue
+            }
             if ($actual -ne $expected) {
                 New-RotaViolation -Id 'H3-Fixed' -Severity 'Hard' -Person $p.name -Week $w `
                     -Message "$($p.name) week ${w}: fixed pattern was modified (expected mask $expected, got $actual)." -Cost 100000
@@ -86,9 +96,18 @@ function Test-RotaFixedAssignments {
 }
 
 function Test-RotaShiftCount {
-    <#  H4: a solved person never works more than their contracted shifts (hard ceiling).
-        Working fewer is allowed but penalised, because the sheet's numbers are targets
-        as well as caps and the week-2 surplus has to land somewhere.  #>
+    <#  H4: every person-week has a floor, a target and a ceiling.
+
+          minShifts  a hard floor. Working fewer is wrong, not merely disappointing --
+                     this is how "must have nine shifts" is said. Optional; where it is
+                     absent there is no floor and a shortfall is only ever soft.
+          shifts     the target. Missing it costs (S3) and nothing more.
+          maxShifts  a hard ceiling. Defaults to the target, which is why a contracted
+                     number acts as a cap unless a ceiling is given separately.
+
+        Keeping the three apart is what lets one roster say "aim for nine", another say
+        "nine or the rota is wrong", and a third say "nought, but up to six if you must"
+        without any of them needing new vocabulary.  #>
     param([Parameter(Mandatory)]$Schedule)
     $config = $Schedule.Config
     $underWeight = Get-RotaWeight -Config $config -Name 'shiftUnderrun' -Default 200
@@ -99,10 +118,15 @@ function Test-RotaShiftCount {
             # Cover staff have a target of zero but a ceiling above it: they are there to
             # fill gaps, so working fewer than the ceiling is the desired outcome, not a miss.
             $ceiling = [int](Get-RotaProperty -Object $p.WeekSpec[$w] -Name 'maxShifts' -Default $target)
+            $floor = Get-RotaProperty -Object $p.WeekSpec[$w] -Name 'minShifts'
             $actual = Get-RotaMaskPopCount -Mask $Schedule.Masks["$($p.name)|$w"]
             if ($actual -gt ($ceiling + $tolerance)) {
                 New-RotaViolation -Id 'H4-ShiftCeiling' -Severity 'Hard' -Person $p.name -Week $w `
                     -Message "$($p.name) week ${w}: $actual shifts exceeds the ceiling of $ceiling." -Cost 100000
+            }
+            elseif ($null -ne $floor -and $actual -lt [int]$floor) {
+                New-RotaViolation -Id 'H11-ShiftFloor' -Severity 'Hard' -Person $p.name -Week $w `
+                    -Message "$($p.name) week ${w}: $actual shifts is below the required minimum of $floor." -Cost 100000
             }
             elseif ($actual -lt $target) {
                 # Cost grows with the square of the deficit, so when shifts cannot all be
@@ -395,6 +419,29 @@ function Test-RotaDaysOffPreference {
     }
 }
 
+function Test-RotaReleasedShifts {
+    <#  S9: a fixed shift the engine chose not to use. Releasing a week says the shifts may
+        go if they are needed elsewhere -- it does not say they are free. Charging them keeps
+        the search honest: it will only take someone off the floor when that genuinely buys
+        something dearer, and the report names every hour given up so the cost of the
+        arrangement is visible rather than assumed.  #>
+    param([Parameter(Mandatory)]$Schedule)
+    $config = $Schedule.Config
+    $weight = Get-RotaWeight -Config $config -Name 'releasedFixedShift' -Default 150
+
+    foreach ($p in $config.FlexibleStaff) {
+        foreach ($w in ($p.FlexibleWeeks.Keys | Sort-Object)) {
+            $week = [int]$w
+            $worked = Get-RotaMaskPopCount -Mask $Schedule.Masks["$($p.name)|$week"]
+            $dropped = $p.FlexibleWeeks[$w].FixedCount - $worked
+            if ($dropped -le 0) { continue }
+            New-RotaViolation -Id 'S9-ReleasedShift' -Severity 'Soft' -Person $p.name -Week $week `
+                -Message "$($p.name) week ${week}: $dropped of their $($p.FlexibleWeeks[$w].FixedCount) fixed shift(s) given up to make room for others." `
+                -Cost ($weight * $dropped)
+        }
+    }
+}
+
 function Test-RotaFairness {
     <#  S5: spread weekend and dinner load evenly across the solved staff.
         Cost is the spread (max - min) rather than a variance, so it reads plainly in
@@ -457,6 +504,7 @@ function Get-RotaConstraints {
         [pscustomobject]@{ Id = 'S6-AdminLunch'; Severity = 'Soft'; Test = ${function:Test-RotaOfficeLunchProtected} }
         [pscustomobject]@{ Id = 'S7-TemporaryCover'; Severity = 'Soft'; Test = ${function:Test-RotaTemporaryStaff} }
         [pscustomobject]@{ Id = 'S8-DaysOffPreference'; Severity = 'Soft'; Test = ${function:Test-RotaDaysOffPreference} }
+        [pscustomobject]@{ Id = 'S9-ReleasedShift'; Severity = 'Soft'; Test = ${function:Test-RotaReleasedShifts} }
     )
 }
 

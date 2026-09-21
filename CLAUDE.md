@@ -46,12 +46,12 @@ If you add a function that returns a collection, wrap it the same way — and ad
 
 ## Other things worth knowing
 
-**Run the tests before and after.** `Invoke-Pester .\tests -Output Normal` — 156 tests, about
-25 seconds. Add `-ExcludeTagFilter Slow` to skip the ones that solve the real roster.
+**Run the tests before and after.** `Invoke-Pester .\tests -Output Normal` — 161 tests, about
+4 minutes. Add `-ExcludeTagFilter Slow` to skip the ones that solve the real roster.
 
 **Solve the real roster after touching the solver.** The synthetic test fixture solves in a
 second and never approaches the time budget, so it cannot see a search that degrades until it
-times out. `.\Invoke-Rota.ps1 -NoExcel` should finish in about 8 seconds with score 1453, zero
+times out. `.\Invoke-Rota.ps1 -NoExcel` should finish in about 8 seconds with score 1330, zero
 hard violations and `TimedOut` false. `Integration.Tests.ps1` asserts this, but run it
 yourself too — a passing suite with a 490-second solve has happened.
 

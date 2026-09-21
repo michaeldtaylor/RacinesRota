@@ -9,8 +9,15 @@ Set-StrictMode -Version Latest
 $script:SlotEligibility = @('ANY', 'PREF', 'OBLIG', 'NO')
 
 function Test-RotaHasProperty {
+    <#  Works for both shapes a config arrives in. roster.json parses into PSCustomObjects,
+        whose members are PSObject.Properties; the Excel importer builds hashtables, whose
+        members are Keys -- asking one for the other's accessor answers "no" with no error.
+        This has now caused three separate silent losses (fixed rows, availability, and the
+        give in a released week), so it is settled here once rather than at each call.  #>
     param([Parameter(Mandatory)]$Object, [Parameter(Mandatory)][string]$Name)
-    $null -ne $Object -and $Object.PSObject.Properties.Name -contains $Name
+    if ($null -eq $Object) { return $false }
+    if ($Object -is [System.Collections.IDictionary]) { return $Object.Contains($Name) }
+    $Object.PSObject.Properties.Name -contains $Name
 }
 
 function Get-RotaProperty {
@@ -135,6 +142,15 @@ function ConvertTo-RotaNormalisedConfig {
             foreach ($entry in (Get-RotaNameValuePairs -Map $fixed)) { $fixedByDay[$entry.Name] = @($entry.Value) }
         }
         Add-Member -InputObject $p -NotePropertyName FixedByDay -NotePropertyValue $fixedByDay -Force
+        $fixedMask = 0
+        foreach ($day in $fixedByDay.Keys) {
+            if (-not $dayIndex.ContainsKey($day)) { continue }
+            foreach ($slot in @($fixedByDay[$day])) {
+                if ($slot -notin @('Lunch', 'Dinner')) { continue }
+                $fixedMask = $fixedMask -bor (1 -shl (Get-RotaSlotIndex -DayIndex $dayIndex[$day] -Slot $slot))
+            }
+        }
+        Add-Member -InputObject $p -NotePropertyName FixedMask -NotePropertyValue $fixedMask -Force
 
         # How this person's weeks relate to each other. See Get-RotaRepeatMode: it is the
         # single question the solver asks, and answering it explicitly is what stops
@@ -160,7 +176,17 @@ function ConvertTo-RotaNormalisedConfig {
                 $weekSpec[$w] = $weeks."$sourceWeek"
             }
         }
-        Add-Member -InputObject $p -NotePropertyName WeekSpec -NotePropertyValue $weekSpec -Force
+        # firmShifts is sugar: "this number is not a target, it is the number". Expanding it
+        # here means the solver and the constraint engine both see a plain floor and ceiling,
+        # and neither needs to know the shorthand exists.
+        foreach ($w in @($weekSpec.Keys)) {
+            $spec = $weekSpec[$w]
+            if ($null -eq $spec) { continue }
+            if ([bool](Get-RotaProperty -Object $spec -Name 'firmShifts' -Default $false)) {
+                Add-Member -InputObject $spec -NotePropertyName minShifts -NotePropertyValue ([int]$spec.shifts) -Force
+                Add-Member -InputObject $spec -NotePropertyName maxShifts -NotePropertyValue ([int]$spec.shifts) -Force
+            }
+        }
 
         # Per-day availability: which services this person can work at all. Distinct from the
         # week spec, which can only say "no weekends" or "lunches only" -- it cannot say
@@ -182,12 +208,50 @@ function ConvertTo-RotaNormalisedConfig {
         Add-Member -InputObject $p -NotePropertyName AvailableByDay -NotePropertyValue $availableByDay -Force
         Add-Member -InputObject $p -NotePropertyName AvailableMask -NotePropertyValue $availableMask -Force
 
+        # Fixed rows are input, but a week can be nominated as give: their pattern becomes a
+        # ceiling the engine may work below, to free capacity for someone who needs it. The
+        # released weeks become ordinary search variables whose domain is their own pattern,
+        # so nothing else in the solver has to learn a new shape.
+        $flexibleWeeks = @{}
+        $flexible = Get-RotaProperty -Object $p -Name 'flexible'
+        if ($null -ne $flexible -and $p.mode -ne 'solved') {
+            foreach ($entry in (Get-RotaNameValuePairs -Map $flexible)) {
+                $w = [int]$entry.Name
+                if ($w -lt 1 -or $w -gt $Config.meta.cycleWeeks) { continue }
+                $fixedCount = 0
+                foreach ($day in $fixedByDay.Keys) { $fixedCount += @($fixedByDay[$day]).Count }
+                $maxDrop = [int](Get-RotaProperty -Object $entry.Value -Name 'maxDrop' -Default 0)
+                $flexibleWeeks[$w] = [pscustomobject]@{
+                    MaxDrop    = $maxDrop
+                    FixedCount = $fixedCount
+                }
+                # Give the week a spec so the solver can treat it like any other variable:
+                # aim for the full pattern, never exceed it, and go no lower than the give.
+                $weekSpec[$w] = [pscustomobject]@{
+                    doubles   = $true
+                    weekend   = $true
+                    lunch     = 'ANY'
+                    dinner    = 'ANY'
+                    shifts    = $fixedCount
+                    maxShifts = $fixedCount
+                    minShifts = [math]::Max(0, $fixedCount - $maxDrop)
+                }
+            }
+        }
+        Add-Member -InputObject $p -NotePropertyName FlexibleWeeks -NotePropertyValue $flexibleWeeks -Force
+        Add-Member -InputObject $p -NotePropertyName WeekSpec -NotePropertyValue $weekSpec -Force
+
         Add-Member -InputObject $p -NotePropertyName IsSolved -NotePropertyValue ($p.mode -eq 'solved') -Force
         Add-Member -InputObject $p -NotePropertyName IsResponsable -NotePropertyValue ([bool]$p.responsable) -Force
     }
     Add-Member -InputObject $Config -NotePropertyName StaffByName -NotePropertyValue $byName -Force
     Add-Member -InputObject $Config -NotePropertyName SolvedStaff -NotePropertyValue @($Config.staff | Where-Object IsSolved) -Force
     Add-Member -InputObject $Config -NotePropertyName FixedStaff -NotePropertyValue @($Config.staff | Where-Object { -not $_.IsSolved }) -Force
+    # Fixed staff with give in at least one week. They are placed by the search in those
+    # weeks and pre-placed in the rest, so both halves of the engine need to find them.
+    Add-Member -InputObject $Config -NotePropertyName FlexibleStaff -NotePropertyValue `
+    @($Config.staff | Where-Object { -not $_.IsSolved -and $_.FlexibleWeeks.Count -gt 0 }) -Force
+    Add-Member -InputObject $Config -NotePropertyName Services -NotePropertyValue (Get-RotaServices -Config $Config) -Force
     Add-Member -InputObject $Config -NotePropertyName Responsables -NotePropertyValue @($Config.staff | Where-Object IsResponsable | ForEach-Object name) -Force
 
     $Config
@@ -375,6 +439,16 @@ function Add-RotaFixedStaff {
     $config = $Schedule.Config
     foreach ($p in $config.FixedStaff) {
         for ($w = 1; $w -le $config.meta.cycleWeeks; $w++) {
+            # A week with give is the search's to fill, not ours -- pre-placing it here
+            # would leave the solver nothing to reduce.
+            if ($p.FlexibleWeeks.ContainsKey($w)) {
+                $office = Get-RotaProperty -Object $p -Name 'officeLunch'
+                if ($null -ne $office) {
+                    $key = "$($p.name)|$w"
+                    $Schedule.OfficeLunch[$key] = $(if ($OfficeLunchDays.ContainsKey($key)) { $OfficeLunchDays[$key] } else { @($office.candidateDays)[0] })
+                }
+                continue
+            }
             foreach ($day in $p.FixedByDay.Keys) {
                 foreach ($slot in $p.FixedByDay[$day]) {
                     Add-RotaAssignment -Schedule $Schedule -Person $p.name -Week $w `

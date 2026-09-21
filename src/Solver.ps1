@@ -78,6 +78,9 @@ function Get-RotaAllowedMask {
     # Per-day availability, where it is given, is a further restriction on top of the week
     # rules -- it can say things they cannot, like dinner on Monday but not on Tuesday.
     if ($null -ne $Person.AvailableMask) { $mask = $mask -band $Person.AvailableMask }
+    # A released fixed week can only ever be a subset of that person's own pattern. Their
+    # rota is still input; what the search decides is how much of it to keep.
+    if ($Person.FlexibleWeeks.ContainsKey($Week)) { $mask = $mask -band $Person.FixedMask }
     $mask
 }
 
@@ -160,6 +163,18 @@ function New-RotaSolverVariables {
                         SpecWeek = $w; Target = [int]$p.WeekSpec[$w].shifts
                     })
             }
+        }
+    }
+
+    # A fixed person with give in a week is a variable for that week only: the rest of their
+    # fortnight is still pre-placed. Their domain is their own pattern, so the search can
+    # only ever take shifts away, never invent new ones.
+    foreach ($p in $Config.FlexibleStaff) {
+        foreach ($w in ($p.FlexibleWeeks.Keys | Sort-Object)) {
+            $vars.Add([pscustomobject]@{
+                    Person = $p; Name = $p.name; Weeks = @([int]$w)
+                    SpecWeek = [int]$w; Target = [int]$p.WeekSpec[[int]$w].shifts
+                })
         }
     }
     , $vars.ToArray()
@@ -360,6 +375,43 @@ function Select-RotaDaysOffFeasiblePatterns {
     $filtered
 }
 
+function Test-RotaMasksResponsable {
+    <#
+    .SYNOPSIS
+        Does every open service still have someone in charge?
+    .DESCRIPTION
+        H2 is otherwise only checked once a candidate is scored exactly, which is too late:
+        the shortlist is built before that, so a schedule that leaves a service with nobody
+        in charge can crowd out the ones that do not, and the search reports a hard violation
+        having never considered the alternatives.
+
+        That never mattered while responsables were fixed -- they were always on the floor, so
+        H2 was satisfied by construction. It matters the moment a responsable's week can be
+        released, because now the search can take the only manager off a service.
+
+        Only worth running when a responsable is actually up for decision; otherwise the
+        fixed rows answer it and this is a waste of a pass over the cycle.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Config,
+        [Parameter(Mandatory)][hashtable]$Masks
+    )
+    $cycleWeeks = [int]$Config.meta.cycleWeeks
+    foreach ($s in $Config.Services) {
+        if (-not $s.Open) { continue }
+        $bit = 1 -shl $s.SlotIndex
+        $covered = $false
+        foreach ($p in $Config.Responsables) {
+            $person = $Config.StaffByName[$p]
+            $mask = if ($Masks.ContainsKey("$p|$($s.Week)")) { $Masks["$p|$($s.Week)"] } else { $person.FixedMask }
+            if ($mask -band $bit) { $covered = $true; break }
+        }
+        if (-not $covered) { return $false }
+    }
+    $true
+}
+
 function Get-RotaOfficeCombinations {
     <#
     .SYNOPSIS
@@ -514,6 +566,8 @@ function Get-RotaVariableCosts {
     $underW = Get-RotaWeight -Config $Config -Name 'shiftUnderrun' -Default 200
     $tempW = Get-RotaWeight -Config $Config -Name 'temporaryShift' -Default 300
     $isTemp = [bool](Get-RotaProperty -Object $Variable.Person -Name 'temporary' -Default $false)
+    $isReleased = $Variable.Person.FlexibleWeeks.ContainsKey($Variable.SpecWeek)
+    $releasedW = Get-RotaWeight -Config $Config -Name 'releasedFixedShift' -Default 150
     $weeks = $Variable.Weeks.Count
     $target = [int]$spec.shifts
 
@@ -544,7 +598,12 @@ function Get-RotaVariableCosts {
         $m = $Masks[$i]
         $n = [System.Numerics.BitOperations]::PopCount([uint32]$m)
         $c = 0.0
-        if ($isTemp) {
+        if ($isReleased) {
+            # Give is charged per shift given up, matching S9, so the search reaches for it
+            # only when it buys something dearer.
+            $c = $releasedW * ($target - $n)
+        }
+        elseif ($isTemp) {
             # Every temporary shift is charged, so cover is used only where nothing else fits.
             $c = $tempW * $n
         }
@@ -610,11 +669,19 @@ function Search-RotaComponent {
     Initialize-RotaSearchKernel
     $cycleWeeks = [int]$Config.meta.cycleWeeks
 
-    # Smallest domain first, and among equals prefer the variable spanning more weeks: it is
-    # constrained by both, so placing it early prunes harder and leaves a single-week
-    # variable last, where it can often be derived outright.
+    # Variables spanning more weeks first, then smallest domain.
+    #
+    # The week-spanning ones are what glue the weeks into a single problem: until one is
+    # pinned, every week's capacity depends on it and nothing can be pruned locally. Order
+    # them last -- which is what sorting by domain size first did, since the person working
+    # every week tends to have the largest domain -- and the search grinds through the whole
+    # cross product of the other weeks before discovering the one variable that never fitted.
+    # On this roster that was the difference between an answer and a timeout.
+    #
+    # It also leaves single-week variables at the end, which is where the last-variable
+    # determination below can fire.
     $order = [int[]]@($Component.VarIndexes |
-            Sort-Object @{ Expression = { $Domains[$_].Count } }, @{ Expression = { - $Variables[$_].Weeks.Count } })
+            Sort-Object @{ Expression = { - $Variables[$_].Weeks.Count } }, @{ Expression = { $Domains[$_].Count } })
 
     # Can the last variable be derived instead of searched? Only if it owns a single week
     # whose capacity must be consumed entirely by this component.
@@ -691,6 +758,9 @@ function Join-RotaComponents {
 
     $cycleWeeks = [int]$Config.meta.cycleWeeks
     $out = [System.Collections.Generic.List[object]]::new()
+    $script:ResponsableAtRisk = [bool](@($Config.staff | Where-Object {
+                $_.IsResponsable -and ($_.IsSolved -or $_.FlexibleWeeks.Count -gt 0)
+            }).Count -gt 0)
 
     # Build the cross product as (indices, combined proxy) pairs, then walk it best first.
     $combos = [System.Collections.Generic.List[object]]::new()
@@ -710,16 +780,26 @@ function Join-RotaComponents {
         foreach ($p in $Config.SolvedStaff) {
             for ($w = 1; $w -le $cycleWeeks; $w++) { $masks["$($p.name)|$w"] = 0 }
         }
+        # A released week starts empty like any other variable; the weeks that were not
+        # released keep the pattern, so the days-off check below sees the whole fortnight.
+        foreach ($p in $Config.FlexibleStaff) {
+            for ($w = 1; $w -le $cycleWeeks; $w++) {
+                $masks["$($p.name)|$w"] = $(if ($p.FlexibleWeeks.ContainsKey($w)) { 0 } else { $p.FixedMask })
+            }
+        }
         foreach ($pick in $combo.Picks) {
             foreach ($vi in $pick.Assign.Keys) {
                 foreach ($w in $Variables[$vi].Weeks) { $masks["$($Variables[$vi].Name)|$w"] = $pick.Assign[$vi] }
             }
         }
         $ok = $true
-        foreach ($p in $Config.SolvedStaff) {
+        foreach ($p in @($Config.SolvedStaff) + @($Config.FlexibleStaff)) {
             if (-not (Test-RotaMasksDaysOff -Config $Config -Masks $masks -Person $p)) { $ok = $false; break }
         }
         if (-not $ok) { continue }
+        # Only when a responsable's shifts are the search's to decide; otherwise the fixed
+        # rows already guarantee it.
+        if ($script:ResponsableAtRisk -and -not (Test-RotaMasksResponsable -Config $Config -Masks $masks)) { continue }
         $out.Add([pscustomobject]@{ Masks = $masks; Office = $Office; ProxyScore = $combo.Proxy })
         if ($out.Count -ge $WantedCandidates) { break }
     }
@@ -750,7 +830,11 @@ function Invoke-RotaSolver {
         # as a floor, so cover can only ever be added on top of it.
         [hashtable]$ShiftFloors = @{},
         # Set on the inner passes to stop the two-pass orchestration recursing.
-        [switch]$SinglePass
+        [switch]$SinglePass,
+        # Last resort: ignore declared shift floors so an answer exists at all. The breach is
+        # then reported by H11 rather than hidden, which is the point -- a rota with a named
+        # problem is worth more than an exception.
+        [switch]$RelaxFloors
     )
 
     # Cover staff must never make the rota easier -- only fill what the permanent team
@@ -837,7 +921,11 @@ function Invoke-RotaSolver {
                 $minCount[$i] = 0; $maxCount[$i] = 0
                 continue
             }
-            $minCount[$i] = [math]::Max(0, $vars[$i].Target - $allowance)
+            # A declared floor is hard, so the search must not look below it. Without a
+            # floor the target minus the house allowance is as low as it is worth going.
+            $declaredFloor = if ($RelaxFloors) { $null } else { Get-RotaProperty -Object $spec -Name 'minShifts' }
+            $minCount[$i] = if ($null -ne $declaredFloor) { [int]$declaredFloor }
+            else { [math]::Max(0, $vars[$i].Target - $allowance) }
             $maxCount[$i] = $ceiling
             # Second pass: never fall below what the permanent team managed on its own.
             if ($ShiftFloors.ContainsKey($floorKey)) {
@@ -896,7 +984,13 @@ function Invoke-RotaSolver {
         foreach ($combo in $combos) {
             # Stop as soon as a cheaper distribution has already produced answers.
             if ($foundForThisCapacity -and $combo.EstimatedCost -ne $lastCost) { break }
-            if (($combo.EstimatedCost - $bestCost) -gt $maxDrop) { break }
+            # The cost window exists to stop the search grinding through ever-worse
+            # distributions once it already has answers. It must not stop it finding a first
+            # one: the cheapest distributions are often the ones with no legal pattern at all
+            # -- days off tends to rule out exactly the fullest weeks -- and giving up inside
+            # the window then returns nothing when a perfectly good rota sits just outside it.
+            # With nothing found yet, the time budget is the only sensible limit.
+            if ($foundForThisCapacity -and ($combo.EstimatedCost - $bestCost) -gt $maxDrop) { break }
             $lastCost = $combo.EstimatedCost
             if ($sw.Elapsed.TotalSeconds -gt $budget) { break }
 
@@ -954,6 +1048,12 @@ function Invoke-RotaSolver {
                 Set-RotaWeekMask -Schedule $schedule -Person $p.name -Week $w -Mask $cand.Masks["$($p.name)|$w"]
             }
         }
+        # Add-RotaFixedStaff deliberately left the released weeks empty, so fill them here.
+        foreach ($p in $Config.FlexibleStaff) {
+            foreach ($w in $p.FlexibleWeeks.Keys) {
+                Set-RotaWeekMask -Schedule $schedule -Person $p.name -Week ([int]$w) -Mask $cand.Masks["$($p.name)|$w"]
+            }
+        }
         $violations = Test-RotaSchedule -Schedule $schedule
         $score = Get-RotaScore -Schedule $schedule -Violations $violations
         $stats.ExactlyScored++
@@ -963,6 +1063,19 @@ function Invoke-RotaSolver {
     }
 
     $sw.Stop()
+    if ($null -eq $best -and -not $RelaxFloors -and -not $stats.TimedOut) {
+        # Somebody's floor cannot be met. Rather than hand back nothing, solve again without
+        # the floors and let the report say which one was missed: the best arrangement the
+        # staff allow is more use than a refusal, and the shortfall is named either way.
+        $relaxed = @($vars | Where-Object { $null -ne (Get-RotaProperty -Object $_.Person.WeekSpec[$_.SpecWeek] -Name 'minShifts') })
+        if ($relaxed.Count -gt 0) {
+            Write-Warning ("No schedule meets every shift floor (" +
+                (($relaxed | ForEach-Object { "$($_.Name) week $($_.SpecWeek)" }) -join ', ') +
+                "). Solving again without them; the shortfall is reported as a hard violation.")
+            return Invoke-RotaSolver -Config $Config -ShortlistSize $ShortlistSize `
+                -ExcludeStaff $ExcludeStaff -ShiftFloors $ShiftFloors -SinglePass:$SinglePass -RelaxFloors
+        }
+    }
     if ($null -eq $best) {
         # A timeout and a genuine contradiction are very different answers, and reporting one
         # as the other would be a lie about the roster.

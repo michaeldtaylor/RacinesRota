@@ -309,3 +309,64 @@ Describe 'Soft rules must be visible to the shortlist, not just the scorer' {
         $costs[1] | Should -BeGreaterThan $costs[0]
     }
 }
+
+Describe 'Shift floors, and what happens when one cannot be met' {
+    # minShifts says "this many or the rota is wrong". Firm contracts make that common, and
+    # an unmeetable floor must not cost the whole schedule: the best arrangement the staff
+    # allow, with the shortfall named, beats an exception.
+
+    It 'holds a floor that can be met' {
+        $cfg = New-TestRotaConfig -RequiredPerService 2 -SolvedShifts 10 -Rules @{ minConsecutiveDaysOffForEveryone = 0 }
+        foreach ($w in '1', '2') { $cfg.staff[1].weeks.$w | Add-Member -NotePropertyName minShifts -NotePropertyValue 10 -Force }
+        $cfg = ConvertTo-RotaNormalisedConfig -Config $cfg
+
+        $result = Invoke-RotaSolver -Config $cfg -ShortlistSize 10
+        for ($w = 1; $w -le 2; $w++) {
+            (Get-RotaMaskPopCount -Mask $result.Schedule.Masks["Solved|$w"]) | Should -BeGreaterOrEqual 10
+        }
+        @($result.Violations | Where-Object Id -eq 'H11-ShiftFloor') | Should -BeNullOrEmpty
+    }
+
+    It 'firmShifts is sugar for floor = target = ceiling' {
+        $cfg = New-TestRotaConfig -SolvedShifts 6
+        foreach ($w in '1', '2') { $cfg.staff[1].weeks.$w | Add-Member -NotePropertyName firmShifts -NotePropertyValue $true -Force }
+        $cfg = ConvertTo-RotaNormalisedConfig -Config $cfg
+        for ($w = 1; $w -le 2; $w++) {
+            (Get-RotaProperty -Object $cfg.staff[1].WeekSpec[$w] -Name 'minShifts') | Should -Be 6
+            (Get-RotaProperty -Object $cfg.staff[1].WeekSpec[$w] -Name 'maxShifts') | Should -Be 6
+        }
+    }
+
+    It 'reports a breached floor as hard, rather than passing it off as a preference' {
+        $cfg = New-TestRotaConfig -SolvedShifts 4
+        $cfg.staff[1].weeks.'1' | Add-Member -NotePropertyName minShifts -NotePropertyValue 4 -Force
+        $cfg = ConvertTo-RotaNormalisedConfig -Config $cfg
+        $schedule = New-RotaSchedule -Config $cfg
+        Add-RotaFixedStaff -Schedule $schedule | Out-Null
+        $mask = New-RotaMaskFromDays -Config $cfg -Days @{ Lundi = 'L' }
+        Set-RotaWeekMask -Schedule $schedule -Person 'Solved' -Week 1 -Mask $mask
+        Set-RotaWeekMask -Schedule $schedule -Person 'Solved' -Week 2 -Mask $mask
+
+        $v = @(Test-RotaShiftCount -Schedule $schedule | Where-Object Id -eq 'H11-ShiftFloor')
+        $v.Count | Should -BeGreaterThan 0
+        $v[0].Severity | Should -Be 'Hard'
+        $v[0].Message | Should -Match 'below the required minimum'
+    }
+
+    It 'REGRESSION: an unmeetable floor gives a best effort, not an exception' {
+        # Only one service a week exists for Solved to fill, so a floor of 12 cannot be met
+        # however the search is arranged. The engine must still produce the best rota it can
+        # and name the shortfall -- a refusal would leave the restaurant with nothing.
+        $cfg = New-TestRotaConfig -RequiredPerService 2 -SolvedShifts 12 -Rules @{ minConsecutiveDaysOffForEveryone = 0 }
+        foreach ($w in '1', '2') { $cfg.staff[1].weeks.$w | Add-Member -NotePropertyName firmShifts -NotePropertyValue $true -Force }
+        $cfg = ConvertTo-RotaNormalisedConfig -Config $cfg
+
+        # Calling it directly: if it throws, the test fails, which is the thing being tested.
+        # (Assigning inside a Should -Not -Throw scriptblock would not escape its scope.)
+        $result = Invoke-RotaSolver -Config $cfg -ShortlistSize 5 -WarningAction SilentlyContinue
+        $result | Should -Not -BeNullOrEmpty
+        $result.Schedule | Should -Not -BeNullOrEmpty
+        # The breach is named rather than hidden.
+        @($result.Violations | Where-Object Id -eq 'H11-ShiftFloor') | Should -Not -BeNullOrEmpty
+    }
+}

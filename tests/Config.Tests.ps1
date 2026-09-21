@@ -39,8 +39,24 @@ Describe 'The shipped roster' {
         $schedule = New-RotaSchedule -Config $script:Roster
         Add-RotaFixedStaff -Schedule $schedule | Out-Null
         foreach ($p in $script:Roster.FixedStaff) {
-            $schedule.Masks["$($p.name)|1"] | Should -Be $schedule.Masks["$($p.name)|2"]
+            for ($w = 1; $w -le [int]$script:Roster.meta.cycleWeeks; $w++) {
+                if ($p.FlexibleWeeks.ContainsKey($w)) {
+                    # A released week is the search's to fill, so pre-placement leaves it
+                    # empty on purpose -- that is what gives the solver something to reduce.
+                    $schedule.Masks["$($p.name)|$w"] | Should -Be 0 -Because "$($p.name) week $w is released"
+                }
+                else {
+                    $schedule.Masks["$($p.name)|$w"] | Should -Be $p.FixedMask -Because "$($p.name) week $w is fixed"
+                }
+            }
         }
+    }
+
+    It 'releases only the weeks that were nominated' {
+        $script:Roster.StaffByName['Suyeon'].FlexibleWeeks.Keys | Should -Be @(2)
+        $script:Roster.StaffByName['Giulia'].FlexibleWeeks.Keys | Should -Be @(2)
+        $script:Roster.StaffByName['Lucas'].FlexibleWeeks.Count | Should -Be 0
+        $script:Roster.StaffByName['Clementine'].FlexibleWeeks.Count | Should -Be 0
     }
 
     It 'leaves 18 services per week for the solved staff to fill' {

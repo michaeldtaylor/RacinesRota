@@ -27,12 +27,12 @@ Export-ModuleMember -Function @(
     'Get-RotaConstraints', 'Test-RotaSchedule', 'Get-RotaScore', 'New-RotaViolation', 'Get-RotaWeight'
     'Test-RotaCoverage', 'Test-RotaResponsable', 'Test-RotaFixedAssignments', 'Test-RotaShiftCount'
     'Test-RotaDoubles', 'Test-RotaSlotEligibility', 'Test-RotaWeekendAvailability'
-    'Test-RotaConsecutiveDaysOff', 'Test-RotaDaysOffPreference', 'Test-RotaAvailability', 'Test-RotaSlotPreference', 'Test-RotaIsolatedWorkDays', 'Test-RotaFairness', 'Test-RotaOfficeLunchProtected', 'Test-RotaTemporaryStaff'
+    'Test-RotaConsecutiveDaysOff', 'Test-RotaDaysOffPreference', 'Test-RotaAvailability', 'Test-RotaSlotPreference', 'Test-RotaReleasedShifts', 'Test-RotaIsolatedWorkDays', 'Test-RotaFairness', 'Test-RotaOfficeLunchProtected', 'Test-RotaTemporaryStaff'
     # Solver
     'Invoke-RotaSolver', 'New-RotaSolverVariables', 'Get-RotaVariableComponents', 'Get-RotaWeekGaps'
     'Get-RotaWeekPatterns', 'Get-RotaAllowedMask', 'Get-RotaPopcountCombinations', 'Get-RotaOfficeCombinations', 'Add-RotaComboCost'
     'Get-RotaOfficeCapacityGroups', 'Select-RotaDaysOffFeasiblePatterns', 'Search-RotaComponent', 'Join-RotaComponents'
-    'Test-RotaMasksDaysOff', 'Get-RotaPopCount'
+    'Test-RotaMasksDaysOff', 'Test-RotaMasksResponsable', 'Get-RotaPopCount'
     'Initialize-RotaSearchKernel'
     # Report and export
     'Get-RotaCoverageReport', 'Get-RotaTempCoverReport', 'Get-RotaTemporaryExposureReport', 'Get-RotaPersonReport', 'Get-RotaSummary', 'Format-RotaGrid', 'Format-RotaReport'

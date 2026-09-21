@@ -69,6 +69,7 @@ Slot eligibility vocabulary, taken from the original spreadsheet:
 | H8 | Solved staff get their required run of consecutive days off, **in every week** |
 | H9 | The same floor applies to fixed staff (`rules.minConsecutiveDaysOffForEveryone`) |
 | H10 | Nobody is rostered on a service they are not available for (`staff[].available`) |
+| H11 | Nobody works fewer than their declared floor (`minShifts`) |
 
 **Soft** — scored and traded off, never silently dropped.
 
@@ -81,9 +82,23 @@ Slot eligibility vocabulary, taken from the original spreadsheet:
 | S6 | Admin lunches genuinely free, not load-bearing |
 | S7 | Temporary cover used as little as possible |
 | S8 | A longer run of days off that someone would like but is not owed |
+| S9 | A fixed shift given up so someone else could be rostered |
 
 There is no S4 — staffing levels are H1's job, in both directions, and the number was left
 free rather than renumbering the rest.
+
+**Every person-week has a floor, a target and a ceiling.** `minShifts` is hard (H11) and is
+how "must have nine shifts" is said; `shifts` is the target, missing it only costs (S3);
+`maxShifts` is a hard cap that defaults to the target. `firmShifts: true` is sugar for
+floor = target = ceiling. A new rule like "at least four, ideally six, never more than seven"
+needs no new vocabulary.
+
+**A fixed week can be released.** `flexible: { "2": { "maxDrop": 3 } }` says that week's
+pattern is a ceiling, not a promise: the engine may work them up to three shifts fewer to
+free capacity for someone who needs it. The released week becomes an ordinary search
+variable whose domain is that person's own pattern, so shifts can only be taken away, never
+moved elsewhere — H3 still rejects anything outside the pattern. Each shift given up is
+charged (`weights.releasedFixedShift`) and named under S9.
 
 **`consecutiveDaysOff` is a promise; `preferredConsecutiveDaysOff` is a wish.** Breaking the
 first makes a schedule wrong (H8/H9). Missing the second is reported and costed (S8) and
@@ -144,23 +159,29 @@ per-person rule is a property of someone's week. Enumerating legal weeks first m
 search never visits a state that breaks one, and coverage becomes pure bitmask arithmetic —
 a person's week is a 14-bit mask, and coverage is tracked as one mask per (level, week).
 
-Six things make it tractable:
+Seven things make it tractable:
 
 1. **Shift-count pre-solve.** How many shifts each variable contributes is decided before any
    pattern is examined, by solving a small integer problem over the week totals. Distributions
    are then tried cheapest-first, costed on coverage shortfall, underrun and temporary cover.
-2. **Days off decided up front.** A variable spanning the whole cycle carries the same mask in
+2. **Coupling variables first.** A person working every week glues the weeks into one
+   problem: until their pattern is pinned, no week's capacity can be pruned on its own.
+   They are therefore placed first, ahead of smaller domains. Ordering by domain size alone
+   put them last -- the person working every week tends to have the largest domain -- and the
+   search then ground through the whole cross product before discovering the one variable
+   that never fitted. On this roster that was the difference between an answer and a timeout.
+3. **Days off decided up front.** A variable spanning the whole cycle carries the same mask in
    every week, so its days-off verdict is settled by that one pattern. Those are dropped
    before the kernel sees them rather than after components are joined — the difference
    between rejecting a dead branch at its root and walking the whole subtree beneath it.
-3. **One search per distinct capacity.** Office-lunch arrangements that leave identical
+4. **One search per distinct capacity.** Office-lunch arrangements that leave identical
    per-service gaps pose the identical problem. They are grouped, searched once, and the
    masks handed to every arrangement in the group; they differ only in admin-lunch cost,
    which exact scoring settles.
-4. **Independent components.** Variables interact only if they compete for capacity in the
+5. **Independent components.** Variables interact only if they compete for capacity in the
    same week. When nobody spans both weeks, the weeks are separate problems.
-5. **Zero-capacity masking.** A pattern touching a full service dies on a single `-band`.
-6. **Last-variable determination.** When a week must come out exactly full, the final
+6. **Zero-capacity masking.** A pattern touching a full service dies on a single `-band`.
+7. **Last-variable determination.** When a week must come out exactly full, the final
    variable's pattern is whatever capacity remains — one hash lookup, not a domain scan.
 
 Prunes 2 and 3 were added after the shipped roster started exhausting its time budget: the
@@ -225,7 +246,7 @@ would buy almost nothing. The wins came from searching less, not from searching 
 Invoke-Pester .\tests -Output Normal
 ```
 
-156 tests, about 25 seconds.
+161 tests, about 4 minutes (the workbook round trip solves the real roster twice).
 
 | File | Covers |
 |---|---|
@@ -271,6 +292,12 @@ the same score. But `roster.json` is still what the engine is driven from, and n
 normal use goes through the workbook. Adding a config field means adding it to both sides, or
 the sheet loses it silently the first time somebody edits it — that round-trip test is what
 catches this.
+
+**A rota with a named problem beats a refusal.** Where the staff simply cannot cover the
+week, the engine still returns the best arrangement it can find and names the gap, rather
+than throwing. The same applies to a shift floor that cannot be met: it solves again without
+the floors and reports the breach as H11. The exit code is still non-zero, so a scheduled run
+notices.
 
 **The search is bounded, not exhaustive.** It stops at a time budget
 (`solver.timeBudgetSeconds`) and searches a band of shift-count distributions
@@ -322,6 +349,9 @@ Everything lives in `config\roster.json`.
 | `staff[].consecutiveDaysOff` | The run of days off this person is **owed** (hard) |
 | `staff[].preferredConsecutiveDaysOff` | A longer run they would **like** (soft, S8). Must be above what they are owed, or it is rejected as dead config |
 | `staff[].available` | `{day: [slots]}` — the exact services this person can work. Absent means no restriction. The week spec can only say "no weekends" or "lunches only"; this says "Monday dinner but no other dinner" |
+| `staff[].weeks.N.minShifts` | A hard floor on shifts that week (H11) |
+| `staff[].weeks.N.firmShifts` | Sugar: floor = target = ceiling |
+| `staff[].flexible` | `{week: {maxDrop: n}}` — a fixed week the engine may work below, by at most `n` |
 | `staff[].weeks.N.preferenceWeight` | What a missed `PREF` costs in *this* week, overriding `weights.slotPreference`. Use it for a preference that is nearly a rule without being one |
 | `staff[].temporary` | Cover only — never used to solve |
 | `staff[].weeks.N.maxShifts` | Ceiling above the target, for cover staff |

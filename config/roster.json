@@ -22,7 +22,7 @@
     "underrunAllowance": 3,
     "_maxCostDropNote": "A cost budget, not a shift count: how far above the cheapest shift-count distribution the search keeps looking before giving up. Compare against the weights below -- one uncovered shift is 1000, one temporary shift is 300.",
     "maxCostDrop": 2500,
-    "componentShortlist": 150,
+    "componentShortlist": 1500,
     "maxComponentCombinations": 4000,
     "timeBudgetSeconds": 240,
     "shiftCountTolerance": 0
@@ -156,10 +156,11 @@
       },
       "_repeatNote": "Cover, so nothing repeats: her two week specs are identical and each week is placed wherever the gap happens to be. Do not set this to 'weekly' -- it would force her to work the same shifts in both weeks, and since the shortfall is in week 1 only, she could not take it without also working week 2, where there is no room. That leaves week 1 understaffed.",
       "consecutiveDaysOff": 0,
+      "_notInUse": "NOT TO BE USED. maxShifts is 0 in both weeks, so the engine cannot roster her at all. Raise it to 6 to make her available again as gap cover. Barring her leaves a genuine hole -- the permanent team can reach only 17 of week 1's 18 -- which the report names under TEMP COVER NEEDED rather than hiding.",
       "_note": "Leaving. Available to plug gaps but must not be relied on: target is 0 shifts with a ceiling of 6 per week, and every shift she takes is charged (weights.temporaryShift) so the engine uses her only where the permanent team cannot cover. Everything she covers is listed under TEMP/LEAVER EXPOSURE in the report -- those are the shifts that become gaps when she goes.",
       "weeks": {
-        "1": { "doubles": true, "shifts": 0, "maxShifts": 6, "weekend": true, "lunch": "ANY", "dinner": "ANY" },
-        "2": { "doubles": true, "shifts": 0, "maxShifts": 6, "weekend": true, "lunch": "ANY", "dinner": "ANY" }
+        "1": { "doubles": true, "shifts": 0, "maxShifts": 0, "weekend": true, "lunch": "ANY", "dinner": "ANY" },
+        "2": { "doubles": true, "shifts": 0, "maxShifts": 0, "weekend": true, "lunch": "ANY", "dinner": "ANY" }
       }
     },
     {

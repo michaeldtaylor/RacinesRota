@@ -85,11 +85,23 @@ Describe 'The shipped roster' {
         $temps | Should -Be @('Federica')
     }
 
-    It 'gives Federica a zero target so she is only ever cover' {
+    It 'bars Federica outright: she is not to be used at present' {
+        # She is kept on the roster as a record, but with a ceiling of zero the engine cannot
+        # roster her at all. Raising maxShifts back above zero makes her gap cover again.
         $fed = $script:Roster.StaffByName['Federica']
         foreach ($w in 1, 2) {
             $fed.WeekSpec[$w].shifts | Should -Be 0
-            (Get-RotaProperty -Object $fed.WeekSpec[$w] -Name 'maxShifts') | Should -BeGreaterThan 0
+            (Get-RotaProperty -Object $fed.WeekSpec[$w] -Name 'maxShifts') | Should -Be 0
+        }
+    }
+
+    It 'REGRESSION: a barred person is given no shifts at all' {
+        # The point of barring her. If the solver ever hands her work again, the rota is
+        # relying on somebody the restaurant has said it will not use.
+        $result = Invoke-RotaSolver -Config $script:Roster -ShortlistSize 200 -WarningAction SilentlyContinue
+        for ($w = 1; $w -le [int]$script:Roster.meta.cycleWeeks; $w++) {
+            (Get-RotaMaskPopCount -Mask $result.Schedule.Masks["Federica|$w"]) |
+                Should -Be 0 -Because "Federica is barred in week $w"
         }
     }
 }

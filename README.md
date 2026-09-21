@@ -246,7 +246,7 @@ would buy almost nothing. The wins came from searching less, not from searching 
 Invoke-Pester .\tests -Output Normal
 ```
 
-161 tests, about 4 minutes (the workbook round trip solves the real roster twice).
+164 tests, about 4 minutes (the workbook round trip solves the real roster twice).
 
 | File | Covers |
 |---|---|

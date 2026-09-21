@@ -32,7 +32,11 @@ param(
     [string]$Config = (Join-Path $PSScriptRoot 'config\roster.json'),
     [string]$Out = (Join-Path $PSScriptRoot 'out'),
     [switch]$NoExcel,
-    [switch]$Quiet
+    [switch]$Quiet,
+    # How many candidates get the full constraint engine. The shortlist is what decides
+    # quality once the search is fast: at 100 this roster settled for a schedule costing
+    # 1330 when one costing 924 was three seconds away.
+    [int]$ShortlistSize = 600
 )
 
 Set-StrictMode -Version Latest
@@ -46,7 +50,7 @@ if (-not $Quiet) {
     Write-Host 'Solving...'
 }
 
-$result = Invoke-RotaSolver -Config $cfg
+$result = Invoke-RotaSolver -Config $cfg -ShortlistSize $ShortlistSize
 
 if (-not $Quiet) {
     Write-Host ''

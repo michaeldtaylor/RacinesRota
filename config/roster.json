@@ -20,10 +20,10 @@
 
   "solver": {
     "underrunAllowance": 3,
-    "_maxCostDropNote": "A cost budget, not a shift count: how far above the cheapest shift-count distribution the search keeps looking before giving up. Compare against the weights below -- one uncovered shift is 1000, one temporary shift is 300.",
-    "maxCostDrop": 2500,
-    "componentShortlist": 1500,
-    "maxComponentCombinations": 4000,
+    "_maxCostDropNote": "A cost budget, not a shift count: how far above the cheapest shift-count distribution the search keeps looking once it already has an answer. Compare against the weights below -- one uncovered shift is 1000, one released fixed shift is 150. Set wide deliberately: at 2500 this roster stopped at a schedule costing 1622 when one costing 1597 was a second away, and with cover available it stopped at 1330 when 924 was reachable. The search is fast enough that looking further is nearly free.",
+    "maxCostDrop": 20000,
+    "componentShortlist": 5000,
+    "maxComponentCombinations": 20000,
     "timeBudgetSeconds": 240,
     "shiftCountTolerance": 0
   },

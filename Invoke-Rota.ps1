@@ -33,10 +33,10 @@ param(
     [string]$Out = (Join-Path $PSScriptRoot 'out'),
     [switch]$NoExcel,
     [switch]$Quiet,
-    # How many candidates get the full constraint engine. The shortlist is what decides
-    # quality once the search is fast: at 100 this roster settled for a schedule costing
+    # How many candidates get the full constraint engine. Quality is decided here once the
+    # search is fast: at the old default of 100 this roster settled for a schedule costing
     # 1330 when one costing 924 was three seconds away.
-    [int]$ShortlistSize = 600
+    [int]$ShortlistSize = 2000
 )
 
 Set-StrictMode -Version Latest

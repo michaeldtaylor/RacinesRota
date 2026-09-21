@@ -30,9 +30,9 @@ Describe 'The shipped roster' {
         @{ Person = 'Lucas'; Shifts = 7 }
         @{ Person = 'Clementine'; Shifts = 3 }
     ) {
-        $schedule = New-RotaSchedule -Config $script:Roster
-        Add-RotaFixedStaff -Schedule $schedule | Out-Null
-        Get-RotaMaskPopCount -Mask $schedule.Masks["$Person|1"] | Should -Be $Shifts
+        # Read the pattern itself rather than a placed schedule: a released week is left
+        # empty on purpose, so placement no longer shows what somebody is rostered for.
+        Get-RotaMaskPopCount -Mask $script:Roster.StaffByName[$Person].FixedMaskForWeek[1] | Should -Be $Shifts
     }
 
     It 'repeats the fixed pattern into every cycle week' {
@@ -52,20 +52,32 @@ Describe 'The shipped roster' {
         }
     }
 
-    It 'releases only the weeks that were nominated' {
-        $script:Roster.StaffByName['Suyeon'].FlexibleWeeks.Keys | Should -Be @(2)
-        $script:Roster.StaffByName['Giulia'].FlexibleWeeks.Keys | Should -Be @(2)
+    It 'releases only the people who were nominated' {
+        # Suyeon and Giulia can give shifts back; the other two fixed rows cannot.
+        @($script:Roster.StaffByName['Suyeon'].FlexibleWeeks.Keys | Sort-Object) | Should -Be @(1, 2)
+        @($script:Roster.StaffByName['Giulia'].FlexibleWeeks.Keys | Sort-Object) | Should -Be @(1, 2)
         $script:Roster.StaffByName['Lucas'].FlexibleWeeks.Count | Should -Be 0
         $script:Roster.StaffByName['Clementine'].FlexibleWeeks.Count | Should -Be 0
     }
 
-    It 'leaves 18 services per week for the solved staff to fill' {
-        # Fixed staff cover 24 of the 42 person-shifts a week needs. This number drives every
-        # coverage conclusion in the reports, so it is pinned here.
+    It 'leaves the solved staff the right number of services to fill' {
+        # A week needs 40 person-shifts: 14 services at three, less one each for the two
+        # midweek lunches that run with two. The fixed rows cover 24 of them where no week
+        # is released, so 16 are left. Week 1 releases one of Suyeon's, making 17. These
+        # numbers drive every coverage conclusion in the reports, so they are pinned.
         $schedule = New-RotaSchedule -Config $script:Roster
         Add-RotaFixedStaff -Schedule $schedule | Out-Null
+        $services = Get-RotaServices -Config $script:Roster
+        $weekDemand = (@($services | Where-Object Week -eq 1) | Measure-Object Required -Sum).Sum
+        $weekDemand | Should -Be 40
+
         $gaps = Get-RotaWeekGaps -Schedule $schedule -Week 1
-        ($gaps | Measure-Object -Sum).Sum | Should -Be 18
+        $placed = 0
+        foreach ($p in $script:Roster.FixedStaff) {
+            if ($p.FlexibleWeeks.ContainsKey(1)) { continue }
+            $placed += Get-RotaMaskPopCount -Mask $p.FixedMaskForWeek[1]
+        }
+        ($gaps | Measure-Object -Sum).Sum | Should -Be ($weekDemand - $placed)
     }
 
     It 'puts Barbara and Veronica on a fortnightly cycle, Beatrice on a weekly one' {

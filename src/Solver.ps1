@@ -80,7 +80,7 @@ function Get-RotaAllowedMask {
     if ($null -ne $Person.AvailableMask) { $mask = $mask -band $Person.AvailableMask }
     # A released fixed week can only ever be a subset of that person's own pattern. Their
     # rota is still input; what the search decides is how much of it to keep.
-    if ($Person.FlexibleWeeks.ContainsKey($Week)) { $mask = $mask -band $Person.FixedMask }
+    if ($Person.FlexibleWeeks.ContainsKey($Week)) { $mask = $mask -band $Person.FixedMaskForWeek[$Week] }
     $mask
 }
 
@@ -404,7 +404,7 @@ function Test-RotaMasksResponsable {
         $covered = $false
         foreach ($p in $Config.Responsables) {
             $person = $Config.StaffByName[$p]
-            $mask = if ($Masks.ContainsKey("$p|$($s.Week)")) { $Masks["$p|$($s.Week)"] } else { $person.FixedMask }
+            $mask = if ($Masks.ContainsKey("$p|$($s.Week)")) { $Masks["$p|$($s.Week)"] } else { $person.FixedMaskForWeek[$s.Week] }
             if ($mask -band $bit) { $covered = $true; break }
         }
         if (-not $covered) { return $false }
@@ -784,7 +784,7 @@ function Join-RotaComponents {
         # released keep the pattern, so the days-off check below sees the whole fortnight.
         foreach ($p in $Config.FlexibleStaff) {
             for ($w = 1; $w -le $cycleWeeks; $w++) {
-                $masks["$($p.name)|$w"] = $(if ($p.FlexibleWeeks.ContainsKey($w)) { 0 } else { $p.FixedMask })
+                $masks["$($p.name)|$w"] = $(if ($p.FlexibleWeeks.ContainsKey($w)) { 0 } else { $p.FixedMaskForWeek[$w] })
             }
         }
         foreach ($pick in $combo.Picks) {

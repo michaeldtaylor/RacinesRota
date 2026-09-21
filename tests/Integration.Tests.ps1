@@ -73,24 +73,19 @@ Describe 'Solving the shipped roster' -Tag 'Slow' {
         $script:Result.Elapsed.TotalSeconds | Should -BeLessThan ($budget / 2)
     }
 
-    It 'breaks no rule except the coverage it cannot meet' {
-        # Federica is barred, and without her the permanent team reaches only 17 of week 1's
-        # 18. That one shortfall is expected and is reported; anything else is a fault.
-        $hard = @($script:Result.Violations | Where-Object Severity -eq 'Hard')
-        @($hard | Where-Object Id -ne 'H1-Coverage') | Should -BeNullOrEmpty
+    It 'breaks no hard rule' {
+        # It did, until the midweek lunches were allowed to run with two and week 1 was
+        # given a shift to release. Both were needed: the first frees the hours, the second
+        # stops the freed hours leaving somebody under contract.
+        @($script:Result.Violations | Where-Object Severity -eq 'Hard') | Should -BeNullOrEmpty
     }
 
-    It 'is short in exactly one service, and says which' {
-        # Pinned deliberately. If a second gap appears, something has regressed or the
-        # roster has changed, and either way somebody needs to know before the week starts.
+    It 'staffs every service, with cover barred' {
         $summary = Get-RotaSummary -Schedule $script:Result.Schedule -Violations $script:Result.Violations
-        $summary.Understaffed | Should -Be 1
+        $summary.Understaffed | Should -Be 0
         $summary.Overstaffed | Should -Be 0
         $summary.MissingResponsable | Should -Be 0
-
-        $short = @(Get-RotaTempCoverReport -Schedule $script:Result.Schedule)
-        $short.Count | Should -Be 1
-        $short[0].PeopleShort | Should -Be 1
+        @(Get-RotaTempCoverReport -Schedule $script:Result.Schedule) | Should -BeNullOrEmpty
     }
 
     It 'keeps everyone else on their full contract despite the gap' {

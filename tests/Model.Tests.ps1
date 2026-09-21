@@ -284,3 +284,67 @@ Describe 'Per-service coverage overrides' {
         @(Test-RotaConfig -Config $cfg) -join ' ' | Should -BeLike '*listed more than once*'
     }
 }
+
+Describe 'A fixed pattern that differs between weeks' {
+    # fixed repeats into every week, which is right for a standing rota and wrong the moment
+    # somebody covers one extra shift in one week only. fixedByWeek replaces the pattern for
+    # the weeks it names -- replaces, not merges, so there is no question about what a named
+    # day means.
+
+    BeforeAll {
+        function New-PerWeekConfig {
+            param($ByWeek)
+            $cfg = New-TestRotaConfig
+            $cfg.staff[0] | Add-Member -NotePropertyName fixedByWeek -NotePropertyValue ([pscustomobject]$ByWeek) -Force
+            ConvertTo-RotaNormalisedConfig -Config $cfg
+        }
+    }
+
+    It 'uses the default pattern for weeks that are not named' {
+        $cfg = New-PerWeekConfig @{ '2' = [pscustomobject]@{ Lundi = @('Lunch') } }
+        $cfg.staff[0].FixedMaskForWeek[1] | Should -Be $cfg.staff[0].FixedMask
+    }
+
+    It 'replaces the pattern for a week that is named' {
+        $cfg = New-PerWeekConfig @{ '2' = [pscustomobject]@{ Lundi = @('Lunch') } }
+        $expected = New-RotaMaskFromDays -Config $cfg -Days @{ Lundi = 'L' }
+        $cfg.staff[0].FixedMaskForWeek[2] | Should -Be $expected
+        $cfg.staff[0].FixedMaskForWeek[2] | Should -Not -Be $cfg.staff[0].FixedMask
+    }
+
+    It 'places each week from its own pattern' {
+        $cfg = New-PerWeekConfig @{ '2' = [pscustomobject]@{ Lundi = @('Lunch') } }
+        $schedule = New-RotaSchedule -Config $cfg
+        Add-RotaFixedStaff -Schedule $schedule | Out-Null
+        $schedule.Masks['Boss|1'] | Should -Be $cfg.staff[0].FixedMask
+        $schedule.Masks['Boss|2'] | Should -Be $cfg.staff[0].FixedMaskForWeek[2]
+    }
+
+    It 'holds the fixed rows to the right week, not the default' {
+        # H3 must compare each week against that week's pattern. Comparing both against the
+        # default would call a correct week-2 rota a modification of the fixed rows.
+        $cfg = New-PerWeekConfig @{ '2' = [pscustomobject]@{ Lundi = @('Lunch') } }
+        $schedule = New-RotaSchedule -Config $cfg
+        Add-RotaFixedStaff -Schedule $schedule | Out-Null
+        @(Test-RotaFixedAssignments -Schedule $schedule) | Should -BeNullOrEmpty
+    }
+
+    It 'rejects an override naming a week the rota does not have' {
+        $cfg = New-PerWeekConfig @{ '5' = [pscustomobject]@{ Lundi = @('Lunch') } }
+        @(Test-RotaConfig -Config $cfg) -join ' ' | Should -BeLike '*names week 5*'
+    }
+
+    It 'rejects an override on a solved person, where it means nothing' {
+        $cfg = New-TestRotaConfig
+        $cfg.staff[1] | Add-Member -NotePropertyName fixedByWeek -NotePropertyValue ([pscustomobject]@{ '2' = [pscustomobject]@{ Lundi = @('Lunch') } }) -Force
+        $cfg = ConvertTo-RotaNormalisedConfig -Config $cfg
+        @(Test-RotaConfig -Config $cfg) -join ' ' | Should -BeLike '*only means something for a fixed person*'
+    }
+
+    It 'leaves a roster without overrides exactly as it was' {
+        $cfg = New-TestRotaConfig
+        for ($w = 1; $w -le [int]$cfg.meta.cycleWeeks; $w++) {
+            $cfg.staff[0].FixedMaskForWeek[$w] | Should -Be $cfg.staff[0].FixedMask
+        }
+    }
+}

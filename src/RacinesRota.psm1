@@ -16,7 +16,7 @@ foreach ($file in @('Model.ps1', 'Config.ps1', 'Constraints.ps1', 'SearchKernel.
 Export-ModuleMember -Function @(
     # Config
     'Import-RotaConfig', 'Test-RotaConfig', 'ConvertTo-RotaNormalisedConfig', 'Add-RotaFixedStaff',
-    'Get-RotaProperty', 'Test-RotaHasProperty', 'Get-RotaRepeatMode', 'Get-RotaNameValuePairs'
+    'Get-RotaProperty', 'Test-RotaHasProperty', 'Get-RotaRepeatMode', 'Get-RotaNameValuePairs', 'ConvertTo-RotaDayMask'
     # Model
     'Get-RotaSlotIndex', 'Get-RotaServiceIndex', 'ConvertFrom-RotaSlotIndex', 'Get-RotaServices'
     'New-RotaSchedule', 'Add-RotaAssignment', 'Set-RotaWeekMask', 'Get-RotaWeekMask'

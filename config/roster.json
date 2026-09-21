@@ -15,7 +15,10 @@
     "requiredPerService": 3,
     "closed": [],
     "_overridesNote": "Services that need more or fewer than requiredPerService. An override names a day and a slot, so it applies in every week of the cycle -- how busy a service is belongs to the day of the week, not to which half of the fortnight it is. Example: { \"day\": \"Samedi\", \"slot\": \"Dinner\", \"required\": 4 }.",
-    "overrides": []
+    "overrides": [
+      { "day": "Mercredi", "slot": "Lunch", "required": 2 },
+      { "day": "Jeudi", "slot": "Lunch", "required": 2 }
+    ]
   },
 
   "solver": {
@@ -49,6 +52,7 @@
       "mode": "fixed",
       "colour": "#B8CCE4",
             "flexible": {
+        "1": { "maxDrop": 1 },
         "2": { "maxDrop": 3 }
       },
       "_flexibleNote": "Week 2 only: this pattern is a ceiling, not a promise. The engine may work them up to 3 shifts fewer to free capacity for Barbara's nine and Veronica's five, and every shift given up is charged (weights.releasedFixedShift) and listed under S9. It can only ever take shifts away -- never move them to another service.",
@@ -72,6 +76,7 @@
       "mode": "fixed",
       "colour": "#FFD966",
             "flexible": {
+        "1": { "maxDrop": 1 },
         "2": { "maxDrop": 3 }
       },
       "_flexibleNote": "Week 2 only: this pattern is a ceiling, not a promise. The engine may work them up to 3 shifts fewer to free capacity for Barbara's nine and Veronica's five, and every shift given up is charged (weights.releasedFixedShift) and listed under S9. It can only ever take shifts away -- never move them to another service.",
@@ -118,6 +123,7 @@
       "repeat": "cycle",
       "cycleWeeks": 2,
       "_repeatNote": "Week 2 is the week Barbara covers dinners and weekends, so Veronica leans hard towards lunches that week. Week 1 keeps the ordinary preference.",
+      "_daysOffNote": "She wants two days off at the end of the week. Forcing it (weekend false) leaves a service uncovered every time it was tried, so it is left open: the engine gives her Vendredi and Samedi in week 1 unprompted, and midweek days in week 2. There is no way yet to ask for particular days off as a preference rather than a rule.",
       "consecutiveDaysOff": 2,
       "weeks": {
         "1": { "doubles": false, "shifts": 5, "weekend": true, "lunch": "PREF", "dinner": "ANY", "firmShifts": true },

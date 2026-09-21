@@ -9,7 +9,7 @@
 #
 # Sheets:
 #   Staff      one row per person: contract, mode, cycle, days off, responsable, cover
-#   FixedGrid  the fixed rota, one column per day and service
+#   FixedGrid  the fixed rota: one row per person per week, a column per day and service
 #   Criteria   per person per week: doubles, shifts, weekend, lunch, dinner eligibility
 #   Coverage   how many are needed per service, any per-service overrides, and closures
 #   Rules      the house rules
@@ -188,15 +188,20 @@ function Get-RotaSettingRows {
 }
 
 function Write-RotaFixedGridSheet {
-    <#  The fixed rota as a grid: one row per fixed person, one column per day and service.  #>
+    <#  The fixed rota as a grid: one row per fixed person per week, one column per day and
+        service. A week gets its own row because a person's fixed pattern can differ between
+        weeks -- an extra Monday dinner in week 1 only, say -- and one row per person could
+        not say so without losing it silently.  #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Package, [Parameter(Mandatory)]$Config)
 
     $ws = Add-Worksheet -ExcelPackage $Package -WorksheetName 'FixedGrid'
     $ws.Cells[1, 1].Value = 'Name'
     $ws.Cells[1, 1].Style.Font.Bold = $true
+    $ws.Cells[1, 2].Value = 'Week'
+    $ws.Cells[1, 2].Style.Font.Bold = $true
 
-    $col = 2
+    $col = 3
     $headers = @{}
     foreach ($day in $Config.days) {
         foreach ($slot in $Config.slots) {
@@ -210,15 +215,17 @@ function Write-RotaFixedGridSheet {
     $r = 2
     foreach ($p in $Config.staff) {
         if ($p.IsSolved) { continue }
-        $ws.Cells[$r, 1].Value = $p.name
-        foreach ($day in $p.FixedByDay.Keys) {
-            foreach ($slot in $p.FixedByDay[$day]) {
-                $ws.Cells[$r, $headers["$day|$slot"]].Value = 'X'
+        for ($w = 1; $w -le $Config.meta.cycleWeeks; $w++) {
+            $ws.Cells[$r, 1].Value = $p.name
+            $ws.Cells[$r, 2].Value = $w
+            $days = $p.FixedDaysForWeek[$w]
+            foreach ($day in $days.Keys) {
+                foreach ($slot in $days[$day]) { $ws.Cells[$r, $headers["$day|$slot"]].Value = 'X' }
             }
+            $r++
         }
-        $r++
     }
-    $ws.View.FreezePanes(2, 2)
+    $ws.View.FreezePanes(2, 3)
     Set-RotaColumnWidths -Worksheet $ws
 }
 
@@ -256,9 +263,13 @@ function Import-RotaConfigExcel {
         if ($row.Setting -in @('closed', 'required')) { continue }
         $settings[$row.Setting] = $row.Value
     }
-    $overrides = foreach ($row in ($coverage | Where-Object Setting -eq 'required')) {
+    # Built as a list so an incomplete row contributes nothing at all. Emitting from a
+    # foreach let an empty hashtable through, which then looked like an override with no day.
+    $coverageOverrides = [System.Collections.Generic.List[object]]::new()
+    foreach ($row in ($coverage | Where-Object Setting -eq 'required')) {
         $parts = "$($row.Value)" -split '\|'
-        if ($parts.Count -ge 3) { @{ day = $parts[0].Trim(); slot = $parts[1].Trim(); required = [int]$parts[2] } }
+        if ($parts.Count -lt 3) { continue }
+        $coverageOverrides.Add(@{ day = $parts[0].Trim(); slot = $parts[1].Trim(); required = [int]$parts[2] })
     }
     $closed = foreach ($row in ($coverage | Where-Object Setting -eq 'closed')) {
         $parts = "$($row.Value)".Split('|')
@@ -288,19 +299,41 @@ function Import-RotaConfigExcel {
     }
 
     # The fixed grid uses one column per "<Day> <Slot>"; an X means that shift is worked.
-    $fixedByPerson = @{}
+    # One row per person per week. Week 1 becomes the default pattern; any later week that
+    # differs from it becomes a fixedByWeek override, so a roster where every week matches
+    # comes back exactly as it went in rather than sprouting redundant overrides.
+    $gridByPerson = @{}
     foreach ($row in $grid) {
         if ([string]::IsNullOrWhiteSpace($row.Name)) { continue }
         $fixed = [ordered]@{}
         foreach ($prop in $row.PSObject.Properties) {
-            if ($prop.Name -eq 'Name' -or [string]::IsNullOrWhiteSpace($prop.Value)) { continue }
+            if ($prop.Name -in @('Name', 'Week') -or [string]::IsNullOrWhiteSpace($prop.Value)) { continue }
             $parts = $prop.Name.Split(' ')
             if ($parts.Count -ne 2) { continue }
             $day = $parts[0]; $slot = $parts[1]
             if (-not $fixed.Contains($day)) { $fixed[$day] = @() }
             $fixed[$day] += $slot
         }
-        $fixedByPerson[$row.Name] = [pscustomobject]$fixed
+        $week = $(if ([string]::IsNullOrWhiteSpace($row.Week)) { 1 } else { [int]$row.Week })
+        if (-not $gridByPerson.ContainsKey($row.Name)) { $gridByPerson[$row.Name] = @{} }
+        $gridByPerson[$row.Name][$week] = $fixed
+    }
+    $fixedByPerson = @{}
+    $fixedByWeekPerson = @{}
+    foreach ($n in $gridByPerson.Keys) {
+        $weeks = $gridByPerson[$n]
+        $default = $(if ($weeks.ContainsKey(1)) { $weeks[1] } else { $weeks[@($weeks.Keys | Sort-Object)[0]] })
+        $fixedByPerson[$n] = [pscustomobject]$default
+        $defaultKey = (@($default.Keys | Sort-Object | ForEach-Object { "${_}:" + (@($default[$_]) -join '+') }) -join ';')
+        # Named distinctly: $overrides above is the coverage list, and reusing the name here
+        # silently replaced it with a hashtable.
+        $weekOverrides = @{}
+        foreach ($w in $weeks.Keys) {
+            if ($w -eq 1) { continue }
+            $key = (@($weeks[$w].Keys | Sort-Object | ForEach-Object { "${_}:" + (@($weeks[$w][$_]) -join '+') }) -join ';')
+            if ($key -ne $defaultKey) { $weekOverrides["$w"] = [pscustomobject]$weeks[$w] }
+        }
+        if ($weekOverrides.Count -gt 0) { $fixedByWeekPerson[$n] = $weekOverrides }
     }
 
     $staff = foreach ($row in $staffRows) {
@@ -345,6 +378,7 @@ function Import-RotaConfigExcel {
             }
         }
         if ($fixedByPerson.ContainsKey($person.name)) { $person['fixed'] = $fixedByPerson[$person.name] }
+        if ($fixedByWeekPerson.ContainsKey($person.name)) { $person['fixedByWeek'] = $fixedByWeekPerson[$person.name] }
         if ($byPerson.ContainsKey($person.name)) { $person['weeks'] = [pscustomobject]$byPerson[$person.name] }
         [pscustomobject]$person
     }
@@ -365,7 +399,7 @@ function Import-RotaConfigExcel {
         coverage    = [pscustomobject]@{
             requiredPerService = [int]$(if ($settings.ContainsKey('requiredPerService')) { $settings['requiredPerService'] } else { 3 })
             closed             = @($closed)
-            overrides          = @($overrides)
+            overrides          = $coverageOverrides.ToArray()
         }
         solver      = ConvertTo-RotaSettingsObject -Rows $solver
         weights     = ConvertTo-RotaSettingsObject -Rows $weights

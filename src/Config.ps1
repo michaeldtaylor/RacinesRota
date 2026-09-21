@@ -54,6 +54,27 @@ function Import-RotaConfig {
     $config
 }
 
+function ConvertTo-RotaDayMask {
+    <#
+    .SYNOPSIS
+        A day -> slots map as a 14-bit week mask.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$Days,
+        [Parameter(Mandatory)][hashtable]$DayIndexOf
+    )
+    $mask = 0
+    foreach ($day in $Days.Keys) {
+        if (-not $DayIndexOf.ContainsKey($day)) { continue }
+        foreach ($slot in @($Days[$day])) {
+            if ($slot -notin @('Lunch', 'Dinner')) { continue }
+            $mask = $mask -bor (1 -shl (Get-RotaSlotIndex -DayIndex $DayIndexOf[$day] -Slot $slot))
+        }
+    }
+    $mask
+}
+
 function Get-RotaNameValuePairs {
     <#
     .SYNOPSIS
@@ -142,15 +163,33 @@ function ConvertTo-RotaNormalisedConfig {
             foreach ($entry in (Get-RotaNameValuePairs -Map $fixed)) { $fixedByDay[$entry.Name] = @($entry.Value) }
         }
         Add-Member -InputObject $p -NotePropertyName FixedByDay -NotePropertyValue $fixedByDay -Force
-        $fixedMask = 0
-        foreach ($day in $fixedByDay.Keys) {
-            if (-not $dayIndex.ContainsKey($day)) { continue }
-            foreach ($slot in @($fixedByDay[$day])) {
-                if ($slot -notin @('Lunch', 'Dinner')) { continue }
-                $fixedMask = $fixedMask -bor (1 -shl (Get-RotaSlotIndex -DayIndex $dayIndex[$day] -Slot $slot))
+
+        # A week named in fixedByWeek replaces the default pattern for that week outright --
+        # it is not merged. Being explicit avoids the question nobody agrees on, which is
+        # whether naming a day in an override adds to that day or replaces it.
+        $byWeek = @{}
+        $override = Get-RotaProperty -Object $p -Name 'fixedByWeek'
+        if ($null -ne $override) {
+            foreach ($entry in (Get-RotaNameValuePairs -Map $override)) {
+                $days = @{}
+                foreach ($d in (Get-RotaNameValuePairs -Map $entry.Value)) { $days[$d.Name] = @($d.Value) }
+                $byWeek[[int]$entry.Name] = $days
             }
         }
+        Add-Member -InputObject $p -NotePropertyName FixedByWeek -NotePropertyValue $byWeek -Force
+
+        $fixedMask = ConvertTo-RotaDayMask -Days $fixedByDay -DayIndexOf $dayIndex
         Add-Member -InputObject $p -NotePropertyName FixedMask -NotePropertyValue $fixedMask -Force
+
+        # Resolved per week, so nothing downstream has to remember the override exists.
+        $maskForWeek = @{}
+        $daysForWeek = @{}
+        for ($w = 1; $w -le $Config.meta.cycleWeeks; $w++) {
+            $daysForWeek[$w] = $(if ($byWeek.ContainsKey($w)) { $byWeek[$w] } else { $fixedByDay })
+            $maskForWeek[$w] = $(if ($byWeek.ContainsKey($w)) { ConvertTo-RotaDayMask -Days $byWeek[$w] -DayIndexOf $dayIndex } else { $fixedMask })
+        }
+        Add-Member -InputObject $p -NotePropertyName FixedDaysForWeek -NotePropertyValue $daysForWeek -Force
+        Add-Member -InputObject $p -NotePropertyName FixedMaskForWeek -NotePropertyValue $maskForWeek -Force
 
         # How this person's weeks relate to each other. See Get-RotaRepeatMode: it is the
         # single question the solver asks, and answering it explicitly is what stops
@@ -218,8 +257,9 @@ function ConvertTo-RotaNormalisedConfig {
             foreach ($entry in (Get-RotaNameValuePairs -Map $flexible)) {
                 $w = [int]$entry.Name
                 if ($w -lt 1 -or $w -gt $Config.meta.cycleWeeks) { continue }
+                $weekDays = $(if ($byWeek.ContainsKey($w)) { $byWeek[$w] } else { $fixedByDay })
                 $fixedCount = 0
-                foreach ($day in $fixedByDay.Keys) { $fixedCount += @($fixedByDay[$day]).Count }
+                foreach ($day in $weekDays.Keys) { $fixedCount += @($weekDays[$day]).Count }
                 $maxDrop = [int](Get-RotaProperty -Object $entry.Value -Name 'maxDrop' -Default 0)
                 $flexibleWeeks[$w] = [pscustomobject]@{
                     MaxDrop    = $maxDrop
@@ -281,13 +321,16 @@ function Test-RotaConfig {
     $seenOverride = @{}
     foreach ($o in @(Get-RotaProperty -Object $Config.coverage -Name 'overrides')) {
         if ($null -eq $o) { continue }
-        $where = "coverage.overrides for '$($o.day) $($o.slot)'"
-        if (-not $Config.DayIndexOf.ContainsKey($o.day)) { $problems.Add("${where}: unknown day '$($o.day)'.") }
-        if ($o.slot -notin @($Config.slots)) { $problems.Add("${where}: unknown slot '$($o.slot)'.") }
+        $oDay = Get-RotaProperty -Object $o -Name 'day'
+        $oSlot = Get-RotaProperty -Object $o -Name 'slot'
+        if ([string]::IsNullOrWhiteSpace($oDay) -and [string]::IsNullOrWhiteSpace($oSlot)) { continue }
+        $where = "coverage.overrides for '$oDay $oSlot'"
+        if ([string]::IsNullOrWhiteSpace($oDay) -or -not $Config.DayIndexOf.ContainsKey($oDay)) { $problems.Add("${where}: unknown day '$oDay'.") }
+        if ($oSlot -notin @($Config.slots)) { $problems.Add("${where}: unknown slot '$oSlot'.") }
         if (-not (Test-RotaHasProperty -Object $o -Name 'required')) { $problems.Add("${where}: no 'required' given.") }
-        elseif ([int]$o.required -lt 1) { $problems.Add("${where}: required must be at least 1; close the service instead of asking for $($o.required).") }
+        elseif ([int](Get-RotaProperty -Object $o -Name 'required') -lt 1) { $problems.Add("${where}: required must be at least 1; close the service instead.") }
 
-        $key = "$($o.day)|$($o.slot)"
+        $key = "$oDay|$oSlot"
         if ($seenOverride.ContainsKey($key)) { $problems.Add("${where}: listed more than once.") }
         $seenOverride[$key] = $true
         if ($closedKeys.ContainsKey($key)) { $problems.Add("${where}: the service is also listed as closed, so the two disagree about whether it runs.") }
@@ -305,6 +348,22 @@ function Test-RotaConfig {
         $seen[$name] = $true
 
         if ($p.mode -notin @('fixed', 'solved')) { $problems.Add("${name}: mode must be 'fixed' or 'solved'; got '$($p.mode)'.") }
+
+        foreach ($w in $p.FixedByWeek.Keys) {
+            if ($w -lt 1 -or $w -gt $Config.meta.cycleWeeks) {
+                $problems.Add("${name}: fixedByWeek names week $w, but the rota is $($Config.meta.cycleWeeks) weeks long.")
+                continue
+            }
+            foreach ($day in $p.FixedByWeek[$w].Keys) {
+                if (-not $Config.DayIndexOf.ContainsKey($day)) { $problems.Add("${name}: fixedByWeek week $w references unknown day '$day'.") }
+                foreach ($slot in $p.FixedByWeek[$w][$day]) {
+                    if ($slot -notin @($Config.slots)) { $problems.Add("${name}: fixedByWeek week $w references unknown slot '$slot' on $day.") }
+                }
+            }
+        }
+        if ($p.IsSolved -and $p.FixedByWeek.Count -gt 0) {
+            $problems.Add("${name}: fixedByWeek only means something for a fixed person; this one is solved.")
+        }
 
         foreach ($day in $p.AvailableByDay.Keys) {
             if (-not $Config.DayIndexOf.ContainsKey($day)) { $problems.Add("${name}: available references unknown day '$day'.") }
@@ -449,8 +508,9 @@ function Add-RotaFixedStaff {
                 }
                 continue
             }
-            foreach ($day in $p.FixedByDay.Keys) {
-                foreach ($slot in $p.FixedByDay[$day]) {
+            $days = $p.FixedDaysForWeek[$w]
+            foreach ($day in $days.Keys) {
+                foreach ($slot in $days[$day]) {
                     Add-RotaAssignment -Schedule $Schedule -Person $p.name -Week $w `
                         -DayIndex $config.DayIndexOf[$day] -Slot $slot
                 }

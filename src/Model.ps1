@@ -76,9 +76,17 @@ function Get-RotaServices {
         if ($null -ne $c) { $closed["$($c.day)|$($c.slot)"] = $true }
     }
 
+    # Read through Get-RotaProperty: overrides arrive as PSCustomObjects from JSON and as
+    # hashtables from the workbook, and a direct property access throws on the wrong one
+    # under StrictMode.
     $override = @{}
     foreach ($o in @(Get-RotaProperty -Object $Config.coverage -Name 'overrides')) {
-        if ($null -ne $o) { $override["$($o.day)|$($o.slot)"] = [int]$o.required }
+        if ($null -eq $o) { continue }
+        $day = Get-RotaProperty -Object $o -Name 'day'
+        $slot = Get-RotaProperty -Object $o -Name 'slot'
+        $required = Get-RotaProperty -Object $o -Name 'required'
+        if ($null -eq $day -or $null -eq $slot -or $null -eq $required) { continue }
+        $override["$day|$slot"] = [int]$required
     }
 
     $services = [System.Collections.Generic.List[object]]::new()

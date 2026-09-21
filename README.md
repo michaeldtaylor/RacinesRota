@@ -246,7 +246,7 @@ would buy almost nothing. The wins came from searching less, not from searching 
 Invoke-Pester .\tests -Output Normal
 ```
 
-164 tests, about 4 minutes (the workbook round trip solves the real roster twice).
+171 tests, about 4 minutes (the workbook round trip solves the real roster twice).
 
 | File | Covers |
 |---|---|
@@ -351,6 +351,7 @@ Everything lives in `config\roster.json`.
 | `staff[].available` | `{day: [slots]}` — the exact services this person can work. Absent means no restriction. The week spec can only say "no weekends" or "lunches only"; this says "Monday dinner but no other dinner" |
 | `staff[].weeks.N.minShifts` | A hard floor on shifts that week (H11) |
 | `staff[].weeks.N.firmShifts` | Sugar: floor = target = ceiling |
+| `staff[].fixedByWeek` | `{week: {day: [slots]}}` — replaces the fixed pattern for the weeks it names. Use it when somebody covers an extra shift in one week only |
 | `staff[].flexible` | `{week: {maxDrop: n}}` — a fixed week the engine may work below, by at most `n` |
 | `staff[].weeks.N.preferenceWeight` | What a missed `PREF` costs in *this* week, overriding `weights.slotPreference`. Use it for a preference that is nearly a rule without being one |
 | `staff[].temporary` | Cover only — never used to solve |

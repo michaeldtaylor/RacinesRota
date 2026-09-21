@@ -70,12 +70,7 @@ function Test-RotaFixedAssignments {
     $config = $Schedule.Config
     foreach ($p in $config.FixedStaff) {
         for ($w = 1; $w -le $config.meta.cycleWeeks; $w++) {
-            $expected = 0
-            foreach ($day in $p.FixedByDay.Keys) {
-                foreach ($slot in $p.FixedByDay[$day]) {
-                    $expected = $expected -bor (1 -shl (Get-RotaSlotIndex -DayIndex $config.DayIndexOf[$day] -Slot $slot))
-                }
-            }
+            $expected = $p.FixedMaskForWeek[$w]
             $actual = $Schedule.Masks["$($p.name)|$w"]
             if ($p.FlexibleWeeks.ContainsKey($w)) {
                 # This week was released, so working less of the pattern is allowed. Working

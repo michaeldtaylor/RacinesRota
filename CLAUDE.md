@@ -46,14 +46,13 @@ If you add a function that returns a collection, wrap it the same way — and ad
 
 ## Other things worth knowing
 
-**Run the tests before and after.** `Invoke-Pester .\tests -Output Normal` — 164 tests, about
+**Run the tests before and after.** `Invoke-Pester .\tests -Output Normal` — 171 tests, about
 4 minutes. Add `-ExcludeTagFilter Slow` to skip the ones that solve the real roster.
 
 **Solve the real roster after touching the solver.** The synthetic test fixture solves in a
 second and never approaches the time budget, so it cannot see a search that degrades until it
-times out. `.\Invoke-Rota.ps1 -NoExcel` should finish in about 8 seconds with score 1597 and exactly one
-hard violation -- Federica is barred, so week 1 Lundi dinner cannot be filled. `TimedOut`
-must be false. `Integration.Tests.ps1` asserts this, but run it
+times out. `.\Invoke-Rota.ps1 -NoExcel` should finish in about 8 seconds with score 1118, every
+service staffed and no hard violations, with `TimedOut` false. `Integration.Tests.ps1` asserts this, but run it
 yourself too — a passing suite with a 490-second solve has happened.
 
 **`Search-RotaComponent` and `Join-RotaComponents` are exported but low-level.** They expect

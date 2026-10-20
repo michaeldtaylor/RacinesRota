@@ -55,7 +55,7 @@
         "1": { "maxDrop": 1 },
         "2": { "maxDrop": 3 }
       },
-      "_flexibleNote": "Week 2 only: this pattern is a ceiling, not a promise. The engine may work them up to 3 shifts fewer to free capacity for Barbara's nine and Veronica's five, and every shift given up is charged (weights.releasedFixedShift) and listed under S9. It can only ever take shifts away -- never move them to another service.",
+      "_flexibleNote": "In both weeks this pattern is a ceiling, not a promise. The engine may work them up to 1 shift fewer in week 1 and up to 3 fewer in week 2, to free capacity for Barbara's nine and Veronica's five. Every shift given up is charged (weights.releasedFixedShift) and listed under S9. It can only ever take shifts away -- never move them to another service.",
       "fixed": {
         "Mardi": ["Dinner"],
         "Mercredi": ["Lunch", "Dinner"],
@@ -79,7 +79,7 @@
         "1": { "maxDrop": 1 },
         "2": { "maxDrop": 3 }
       },
-      "_flexibleNote": "Week 2 only: this pattern is a ceiling, not a promise. The engine may work them up to 3 shifts fewer to free capacity for Barbara's nine and Veronica's five, and every shift given up is charged (weights.releasedFixedShift) and listed under S9. It can only ever take shifts away -- never move them to another service.",
+      "_flexibleNote": "In both weeks this pattern is a ceiling, not a promise. The engine may work them up to 1 shift fewer in week 1 and up to 3 fewer in week 2, to free capacity for Barbara's nine and Veronica's five. Every shift given up is charged (weights.releasedFixedShift) and listed under S9. It can only ever take shifts away -- never move them to another service.",
       "fixed": {
         "Mardi": ["Lunch", "Dinner"],
         "Mercredi": ["Lunch", "Dinner"],
@@ -160,10 +160,10 @@
         "Mercredi": ["Lunch"],
         "Jeudi": ["Lunch"]
       },
-      "_repeatNote": "Cover, so nothing repeats: her two week specs are identical and each week is placed wherever the gap happens to be. Do not set this to 'weekly' -- it would force her to work the same shifts in both weeks, and since the shortfall is in week 1 only, she could not take it without also working week 2, where there is no room. That leaves week 1 understaffed.",
+      "_repeatNote": "Cover, so nothing repeats: her two week specs are identical and each week is placed wherever the gap happens to be. Do not set this to 'weekly' -- it would force her to work the same shifts in both weeks, so a shortfall in one week could not be covered without also working the other, where there may be no room.",
       "consecutiveDaysOff": 0,
-      "_notInUse": "NOT TO BE USED. maxShifts is 0 in both weeks, so the engine cannot roster her at all. Raise it to 6 to make her available again as gap cover. Barring her leaves a genuine hole -- the permanent team can reach only 17 of week 1's 18 -- which the report names under TEMP COVER NEEDED rather than hiding.",
-      "_note": "Leaving. Available to plug gaps but must not be relied on: target is 0 shifts with a ceiling of 6 per week, and every shift she takes is charged (weights.temporaryShift) so the engine uses her only where the permanent team cannot cover. Everything she covers is listed under TEMP/LEAVER EXPOSURE in the report -- those are the shifts that become gaps when she goes.",
+      "_notInUse": "NOT TO BE USED. maxShifts is 0 in both weeks, so the engine cannot roster her at all. Raise it to 6 to make her available again as gap cover. The rota does not need her at present: with the midweek lunches at two and Suyeon and Giulia able to release shifts, the permanent team staffs every service.",
+      "_note": "Leaving. If brought back she is cover only and must not be relied on: target 0 shifts, and every shift she takes is charged (weights.temporaryShift) so the engine uses her only where the permanent team cannot cover. Everything she covers is listed under TEMP/LEAVER EXPOSURE in the report -- those are the shifts that become gaps when she goes.",
       "weeks": {
         "1": { "doubles": true, "shifts": 0, "maxShifts": 0, "weekend": true, "lunch": "ANY", "dinner": "ANY" },
         "2": { "doubles": true, "shifts": 0, "maxShifts": 0, "weekend": true, "lunch": "ANY", "dinner": "ANY" }
@@ -175,7 +175,7 @@
       "responsable": false,
       "mode": "solved",
       "colour": "#F8CBAD",
-      "_shiftsNote": "New staff, to be fully used: seven shifts every week, not a target. Only Suyeon and Giulia give shifts back in week 2.",
+      "_shiftsNote": "New staff, to be fully used: seven shifts every week, not a target. Only Suyeon and Giulia give shifts back, in either week.",
       "repeat": "weekly",
       "consecutiveDaysOff": 2,
       "preferredConsecutiveDaysOff": 3.5,

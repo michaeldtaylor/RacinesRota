@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0' }
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.0' }
 #
 # Solver.Tests.ps1 -- search structure, and the invariants the whole engine rests on.
 #

@@ -46,12 +46,12 @@ If you add a function that returns a collection, wrap it the same way — and ad
 
 ## Other things worth knowing
 
-**Run the tests before and after.** `Invoke-Pester .\tests -Output Normal` — 181 tests, 2–4
+**Run the tests before and after.** `Invoke-Pester .\tests -Output Normal` — 184 tests, 2–4
 minutes, on Pester 6+. Add `-ExcludeTagFilter Slow` to skip the ones that solve the real roster.
 
 **Solve the real roster after touching the solver.** The synthetic test fixture solves in a
 second and never approaches the time budget, so it cannot see a search that degrades until it
-times out. `.\Invoke-Rota.ps1 -NoExcel` should finish in 15–35 seconds with score 1118,
+times out. `.\Invoke-Rota.ps1 -NoExcel` should finish in 15–35 seconds with score 1103,
 every service staffed and no hard violations, with `TimedOut` false. It prints one `Search,` line
 per pass: about 4.38 million nodes for the permanent team only, 1.07 million with cover. `Integration.Tests.ps1` asserts this, but run it
 yourself too — a passing suite with a 490-second solve has happened.

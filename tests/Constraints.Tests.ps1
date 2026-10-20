@@ -239,6 +239,71 @@ Describe 'S7 temporary cover' {
     }
 }
 
+Describe 'S5 fairness' {
+    BeforeAll {
+        # Two permanent solved staff and one cover. Built on the fixture rather than from
+        # scratch so the rest of the roster stays the one every other test uses.
+        function New-FairnessConfig {
+            param([int]$CoverCeiling = 0)
+            $cfg = New-TestRotaConfig
+            $week = '{ "doubles": true, "shifts": 4, "weekend": true, "lunch": "ANY", "dinner": "ANY" }'
+            $cfg.staff += ('{ "name": "Second", "contract": "", "responsable": false, "mode": "solved", ' +
+                '"cycleWeeks": 1, "consecutiveDaysOff": 2, "weeks": { "1": ' + $week + ', "2": ' + $week + ' } }' |
+                ConvertFrom-Json)
+            $cover = '{ "doubles": true, "shifts": 0, "maxShifts": ' + $CoverCeiling + ', "weekend": true, "lunch": "ANY", "dinner": "ANY" }'
+            $cfg.staff += ('{ "name": "Cover", "contract": "TEMPORAIRE", "responsable": false, "mode": "solved", ' +
+                '"temporary": true, "repeat": "none", "consecutiveDaysOff": 0, "weeks": { "1": ' + $cover + ', "2": ' + $cover + ' } }' |
+                ConvertFrom-Json)
+            ConvertTo-RotaNormalisedConfig -Config $cfg
+        }
+
+        function New-FairnessSchedule {
+            param($Config, [int]$SolvedMask, [int]$SecondMask, [int]$CoverMask = 0)
+            $schedule = New-RotaSchedule -Config $Config
+            Add-RotaFixedStaff -Schedule $schedule | Out-Null
+            foreach ($w in 1, 2) {
+                Set-RotaWeekMask -Schedule $schedule -Person 'Solved' -Week $w -Mask $SolvedMask
+                Set-RotaWeekMask -Schedule $schedule -Person 'Second' -Week $w -Mask $SecondMask
+                Set-RotaWeekMask -Schedule $schedule -Person 'Cover' -Week $w -Mask $CoverMask
+            }
+            $schedule
+        }
+    }
+
+    It 'reports an uneven dinner load between permanent staff' {
+        $cfg = New-FairnessConfig
+        $two = New-RotaMaskFromDays -Config $cfg -Days @{ Lundi = 'D'; Mardi = 'D' }
+        $none = New-RotaMaskFromDays -Config $cfg -Days @{ Lundi = 'L'; Mardi = 'L' }
+        $schedule = New-FairnessSchedule -Config $cfg -SolvedMask $two -SecondMask $none
+
+        $v = @(Test-RotaFairness -Schedule $schedule | Where-Object Id -eq 'S5-Fairness-dinner')
+        $v.Count | Should -Be 1
+        $v[0].Cost | Should -Be (3 * 4)            # 4 dinners against 0, over two weeks
+    }
+
+    It 'REGRESSION: a barred cover person does not count as under-loaded' {
+        # Federica, barred at zero shifts, was the minimum of every spread: the shipped
+        # roster's dinner spread read 8 when the permanent team's was 3, costing 15 points
+        # for a load nobody could ever have evened out.
+        $cfg = New-FairnessConfig
+        $two = New-RotaMaskFromDays -Config $cfg -Days @{ Lundi = 'D'; Mardi = 'D' }
+        $schedule = New-FairnessSchedule -Config $cfg -SolvedMask $two -SecondMask $two
+
+        @(Test-RotaFairness -Schedule $schedule) | Should -BeNullOrEmpty
+    }
+
+    It 'leaves cover out even when it is working' {
+        # Cover is used as little as possible (S7). Counting it here would reward handing it
+        # more dinners and weekends, which is the opposite.
+        $cfg = New-FairnessConfig -CoverCeiling 4
+        $two = New-RotaMaskFromDays -Config $cfg -Days @{ Lundi = 'D'; Mardi = 'D' }
+        $coverMask = New-RotaMaskFromDays -Config $cfg -Days @{ Samedi = 'LD'; Dimanche = 'LD' }
+        $schedule = New-FairnessSchedule -Config $cfg -SolvedMask $two -SecondMask $two -CoverMask $coverMask
+
+        @(Test-RotaFairness -Schedule $schedule) | Should -BeNullOrEmpty
+    }
+}
+
 Describe 'The constraint registry' {
     It 'runs every registered evaluator through Test-RotaSchedule' {
         $schedule = New-ScheduleWithSolved -Week1Mask 0

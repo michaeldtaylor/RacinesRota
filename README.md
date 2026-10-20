@@ -85,7 +85,7 @@ went unlisted for a while precisely because one evaluator was assumed to mean on
 | S1 | `PREF` slot honoured |
 | S2 | No isolated single working days |
 | S3 | Shift targets met (cost grows with the *square* of the deficit, so shortfalls spread rather than landing on one person) |
-| S5 | Weekend and dinner load spread evenly |
+| S5 | Weekend and dinner load spread evenly across the permanent solved staff (cover is left out — S7 already wants it light) |
 | S6 | Admin lunches genuinely free, not load-bearing |
 | S7 | Temporary cover used as little as possible |
 | S8 | A longer run of days off that someone would like but is not owed |
@@ -272,7 +272,7 @@ start with the join, not the kernel.
 Invoke-Pester .\tests -Output Normal
 ```
 
-181 tests, 2–4 minutes (the workbook round trip solves the real roster twice).
+184 tests, 2–4 minutes (the workbook round trip solves the real roster twice).
 
 | File | Covers |
 |---|---|

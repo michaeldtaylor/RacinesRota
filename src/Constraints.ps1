@@ -438,18 +438,24 @@ function Test-RotaReleasedShifts {
 }
 
 function Test-RotaFairness {
-    <#  S5: spread weekend and dinner load evenly across the solved staff.
+    <#  S5: spread weekend and dinner load evenly across the permanent solved staff.
         Cost is the spread (max - min) rather than a variance, so it reads plainly in
-        the report and stays comparable between runs.  #>
+        the report and stays comparable between runs.
+        Temporary cover is left out. It is meant to work as little as possible (S7), so its
+        light load is not unfairness -- counting it made a barred person the minimum of
+        every spread, and would reward giving cover more dinners and weekends.  #>
     param([Parameter(Mandatory)]$Schedule)
     $config = $Schedule.Config
-    if ($config.SolvedStaff.Count -lt 2) { return }
+    $permanent = @($config.SolvedStaff | Where-Object {
+            -not (Get-RotaProperty -Object $_ -Name 'temporary' -Default $false)
+        })
+    if ($permanent.Count -lt 2) { return }
 
     $weekendW = Get-RotaWeight -Config $config -Name 'weekendFairness' -Default 3
     $dinnerW = Get-RotaWeight -Config $config -Name 'dinnerFairness' -Default 3
 
     $weekendCount = @{}; $dinnerCount = @{}
-    foreach ($p in $config.SolvedStaff) {
+    foreach ($p in $permanent) {
         $weekendCount[$p.name] = 0; $dinnerCount[$p.name] = 0
         for ($w = 1; $w -le $config.meta.cycleWeeks; $w++) {
             $mask = $Schedule.Masks["$($p.name)|$w"]
@@ -468,7 +474,7 @@ function Test-RotaFairness {
         $spread = ($values | Measure-Object -Maximum).Maximum - ($values | Measure-Object -Minimum).Minimum
         if ($spread -gt 0) {
             New-RotaViolation -Id "S5-Fairness-$($pair.Name)" -Severity 'Soft' `
-                -Message "$($pair.Name) load spread across solved staff is $spread ($(($pair.Counts.GetEnumerator() | Sort-Object Key | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', '))." `
+                -Message "$($pair.Name) load spread across permanent solved staff is $spread ($(($pair.Counts.GetEnumerator() | Sort-Object Key | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', '))." `
                 -Cost ($pair.Weight * $spread)
         }
     }

@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0' }
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.0' }
 #
 # Integration.Tests.ps1 -- the shipped roster, solved for real.
 #

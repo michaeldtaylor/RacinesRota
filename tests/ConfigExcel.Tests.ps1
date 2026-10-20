@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0' }
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.0' }
 #
 # ConfigExcel.Tests.ps1 -- the roster as an editable workbook, and back again.
 #

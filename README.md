@@ -45,7 +45,7 @@ people on the floor by default; individual services can ask for more or fewer
 | Clémentine | MI TEMPS | Fixed pattern |
 | Veronica | MI TEMPS | Placed by the engine |
 | Barbara, Beatrice | PLEIN TEMPS | Placed by the engine |
-| Federica | TEMPORAIRE | Cover only — leaving, must not be relied on |
+| Federica | TEMPORAIRE | Cover only — leaving, and barred from the rota at present |
 
 Slot eligibility vocabulary, taken from the original spreadsheet:
 `OBLIG` every shift must be this service · `NO` never this service ·
@@ -136,8 +136,8 @@ in a row.
 
 | | Meaning | Who |
 |---|---|---|
-| `weekly` | The same rota every week — one decision, reused | Veronica, Beatrice |
-| `cycle` | The contract itself differs between weeks and repeats over `cycleWeeks` of them | Barbara |
+| `weekly` | The same rota every week — one decision, reused | Beatrice |
+| `cycle` | The contract itself differs between weeks and repeats over `cycleWeeks` of them | Barbara, Veronica |
 | `none` | Nothing repeats; each week is placed on its own | Federica |
 
 Only `weekly` collapses to a single decision. `cycle` and `none` produce the same search
@@ -146,9 +146,13 @@ questions, and two people carried the same value for opposite reasons. Validatio
 a `cycle` whose weeks are identical, and names the two better answers. Set
 `rules.enforcePersonCycleRepeat` to false to let a `weekly` person's weeks differ after all.
 
-The distinction is load-bearing for cover. Federica must be `none`: the shortfall is in week 1
-only, and a repeating week cannot take it without also working week 2, where there is no room
-— which leaves week 1 understaffed.
+Veronica is `cycle` because her week 2 — the week Barbara covers dinners and weekends — leans
+much harder towards lunches (`preferenceWeight`), even though her shift count is the same.
+
+The distinction is load-bearing for cover. Federica must be `none`: a shortfall usually falls
+in one week only, and a repeating week cannot take it without also working the other, where
+there may be no room. She is barred at present (see Known limitations), so this only matters
+again if she is brought back.
 
 **An office lunch still counts towards the three** (`rules.officeLunchCountsOnFloor`).
 Suyeon does admin but can step onto the floor. This contradicts the note on the original
@@ -194,8 +198,20 @@ Seven things make it tractable:
 Prunes 2 and 3 were added after the shipped roster started exhausting its time budget: the
 search was visiting 6.8 million nodes, surrendering to the clock, and returning a single
 candidate — which is not a search result but an accident, since the scorer had nothing to
-choose between. It now completes in 11,605 nodes and about 8 seconds, considering 15
-candidates, and finds a better schedule than the one it used to time out on.
+choose between. Those two prunes brought it down to 11,605 nodes, and it found a better
+schedule than the one it used to time out on.
+
+The roster has since grown harder, and the search has been widened on purpose: fixed weeks
+can be released, `maxCostDrop` is 20,000 and the shortlist 5,000, because narrower settings
+were stopping at visibly worse rotas. The shipped roster now takes, per pass:
+
+| | nodes | candidates | scored exactly |
+|---|---|---|---|
+| permanent team only | 4.38 million | 26 | 104 |
+| with cover | 1.07 million | 5 | 20 |
+
+Neither pass comes near the budget. The whole `Invoke-Rota.ps1` run takes 15–35 seconds
+depending on the machine and its load, and prints a `Search,` line for each pass.
 
 ### Two-pass temporary cover
 
@@ -241,9 +257,12 @@ The kernel knows nothing about rota rules. It is handed pre-filtered pattern dom
 capacity model and returns the cheapest complete assignments it finds. Every rule lives in
 `Constraints.ps1`, which is also what scores the winner.
 
-Worth knowing before optimising further: the kernel is *not* the slow part any more. Setup in
-PowerShell is about 1.6 seconds a pass, roughly 3% of a run, so rewriting more of it in .NET
-would buy almost nothing. The wins came from searching less, not from searching faster.
+Worth knowing before optimising further: the kernel is *not* the slow part any more. In one
+profiled 28-second solve of the shipped roster, the kernel took 3.6 seconds across both
+passes, while `Join-RotaComponents` — the PowerShell that combines component solutions into
+candidates — took 12.4, and exact scoring by `Test-RotaSchedule` 2.9. The rest was other
+PowerShell: pattern enumeration, costing and schedule building. If a run needs to be faster,
+start with the join, not the kernel.
 
 ---
 
@@ -253,7 +272,7 @@ would buy almost nothing. The wins came from searching less, not from searching 
 Invoke-Pester .\tests -Output Normal
 ```
 
-181 tests, about 4 minutes (the workbook round trip solves the real roster twice).
+181 tests, 2–4 minutes (the workbook round trip solves the real roster twice).
 
 | File | Covers |
 |---|---|
@@ -265,10 +284,10 @@ Invoke-Pester .\tests -Output Normal
 | `ConfigExcel.Tests.ps1` | The roster through the workbook and back — tagged `Slow` |
 
 Most tests run against a small synthetic roster in `TestHelpers.ps1` that solves in about a
-second. The shipped roster's own figures — 7/7/7/3 fixed shifts, 18 gaps a week, Federica as
-the only temp with a zero target — are asserted in `Config.Tests.ps1`, so editing
-`roster.json` into a different shape fails loudly rather than producing a plausible rota for
-the wrong restaurant.
+second. The shipped roster's own figures — 40 person-shifts a week, which fixed weeks may be
+released, who repeats how, Federica as the only temp and barred outright — are asserted in
+`Config.Tests.ps1`, so editing `roster.json` into a different shape fails loudly rather than
+producing a plausible rota for the wrong restaurant.
 
 Skip the slow ones while iterating:
 
@@ -315,24 +334,29 @@ reported as "impossible" — those are very different answers about a roster.
 **Rows below 17 of the original spreadsheet were never supplied**, so any rules there are not
 implemented.
 
-**Contracted hours exceed what the rota can absorb, by two shifts a fortnight.** This is not a
-scheduling problem and no search setting fixes it:
+**Contracted hours exceed the rota's gaps; responsables give shifts back to absorb them.**
+A week needs 40 person-shifts — 14 services at three, less one each for the midweek lunches
+(Mercredi and Jeudi) that run with two. The fixed rows cover 24, leaving 16 for solved staff:
 
 | | week 1 | week 2 |
 |---|---|---|
-| gaps to fill | 18 | 18 |
-| permanent staff contracted to fill them | 17 | **21** |
+| gaps left by the fixed rows | 16 | 16 |
+| permanent solved staff contracted to fill them | 17 | **21** |
+| fixed shifts Suyeon and Giulia may release (`flexible`) | up to 2 | up to 6 |
+| released in the current rota | 1 | 5 |
 
-Across the fortnight there are 36 gaps and 38 contracted shifts. Barbara's week 1 is capped at
-exactly five by her own terms — lunch only, no weekends, no doubles gives Monday to Friday
-lunch and no choice in it — so a full-time 14 forces nine into week 2, where there is room for
-six. **The contract stands as written**; the surplus is reported rather than hidden.
+Barbara's week 1 is capped at exactly five by her own terms — lunch only, no weekends, no
+doubles gives Monday to Friday lunch and no choice in it — so a full-time 14 forces nine into
+week 2. **The contracts stand as written**: the surplus of six is absorbed by releasing six of
+Suyeon's and Giulia's fixed shifts, each charged and named under S9. Every service is staffed
+and no hard rule breaks.
 
-Note that hiring does not resolve this. A new person adds contracted hours to *both* weeks,
-and in week 2 they would sit idle alongside Barbara. What a hire *would* cover is the hole
-Federica leaves behind: when she goes, **week 1 Jeudi dinner drops to two of three**. Everyone
-else is at their ceiling by then, and Barbara cannot take it because her week 1 is
-`dinner: NO`.
+The margin is thin. Week 1 can release only one more shift, so it has room for at most one
+more contracted shift. Beyond that, added week 1 hours — a new hire, or a raised contract —
+break a floor (H11) or overstaff a service (H1) unless `flexible` allows more to be released.
+
+**Federica is barred** (`maxShifts: 0` in both weeks) and the rota no longer needs her. She
+stays on the roster as a record; raising her `maxShifts` makes her gap cover again.
 
 ---
 
@@ -374,7 +398,7 @@ exposure** in every report. Note that `contract: "TEMPORAIRE"` does *not* do thi
 ## Requirements
 
 - PowerShell 7+
-- `Pester` 5+ for the tests — `Install-Module Pester -Scope CurrentUser`
+- `Pester` 6+ for the tests — `Install-Module Pester -MinimumVersion 6.0 -Scope CurrentUser -SkipPublisherCheck`
 - `ImportExcel` for `.xlsx` output — `Install-Module ImportExcel -Scope CurrentUser`.
   Optional: `.\Invoke-Rota.ps1 -NoExcel` writes JSON only and needs nothing extra.
 

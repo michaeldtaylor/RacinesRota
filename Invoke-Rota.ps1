@@ -56,8 +56,22 @@ if (-not $Quiet) {
     Write-Host ''
     Write-Host (Format-RotaReport -Schedule $result.Schedule -Violations $result.Violations)
     Write-Host ''
-    Write-Host "Search: $($result.Stats.Nodes) nodes, $($result.Stats.CandidatesFound) candidates, $($result.Stats.ExactlyScored) scored exactly, $([math]::Round($result.Elapsed.TotalSeconds,1))s"
-    if ($result.Stats.TimedOut) {
+    # With cover staff on the roster the solver runs twice -- the permanent team alone, then
+    # with cover on top -- and $result is only the second pass. Report both, or the first
+    # (usually the larger) vanishes from the figures.
+    $passes = [ordered]@{}
+    if ($result.PSObject.Properties['PermanentOnly']) {
+        $passes['permanent team only'] = $result.PermanentOnly
+        $passes['with cover'] = $result
+    }
+    else {
+        $passes['single pass'] = $result
+    }
+    foreach ($label in $passes.Keys) {
+        $pass = $passes[$label]
+        Write-Host "Search, $($label): $($pass.Stats.Nodes) nodes, $($pass.Stats.CandidatesFound) candidates, $($pass.Stats.ExactlyScored) scored exactly, $([math]::Round($pass.Elapsed.TotalSeconds,1))s"
+    }
+    if (@($passes.Values | Where-Object { $_.Stats.TimedOut }).Count -gt 0) {
         Write-Warning 'The search hit its time budget, so a better schedule may exist. Raise solver.timeBudgetSeconds to look harder.'
     }
 }
